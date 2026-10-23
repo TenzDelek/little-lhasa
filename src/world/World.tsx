@@ -11,6 +11,7 @@ import { Npcs } from '../characters/npcs/Npcs';
 import { Animals } from '../characters/animals/Animals';
 import { ColliderDebug } from './ColliderDebug';
 import { KitPreview } from '../kit/KitPreview';
+import { StreetPreview } from '../kit/StreetPreview';
 import { debug } from '../game/debug';
 
 class Guard extends Component<{ name: string; children: ReactNode }, { failed: boolean }> {
@@ -32,6 +33,7 @@ export function World() {
       <Guard name="npcs"><Npcs /></Guard>
       <Guard name="animals"><Animals /></Guard>
       {debug.kit && <Guard name="kit"><KitPreview /></Guard>}
+      {debug.kit && <Guard name="street-kit"><StreetPreview /></Guard>}
       <ColliderDebug />
     </>
   );
