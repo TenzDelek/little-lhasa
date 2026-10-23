@@ -23,9 +23,9 @@ export const sky = {
     invProj.value.copy(cam.projectionMatrixInverse);
     camWorld.value.copy(cam.matrixWorld);
   },
-  /** Sky colour (sRGB) for a background pixel at uv (0..1, y up) / art pixel px. */
+  /** Sky colour (sRGB) for a background pixel at screen uv (0..1, y DOWN as screenUV) / art pixel px. */
   colorAt(uv: Node<'vec2'>, ip: typeof invProj, cw: typeof camWorld, px: Node<'vec2'>): Node<'vec3'> {
-    const ndc = vec4(uv.mul(2).sub(1), 1, 1);
+    const ndc = vec4(uv.x.mul(2).sub(1), uv.y.mul(-2).add(1), 1, 1);
     const v = ip.mul(ndc);
     const dirView = normalize(v.xyz.div(v.w));
     const dir = normalize(cw.mul(vec4(dirView, 0)).xyz);
@@ -37,10 +37,10 @@ export const sky = {
     col.assign(mix(col, gnd, smoothstep(0.0, -0.08, y)));
     // stars: fixed to the sky (direction cells), twinkle a little
     const az = atan(dir.x, dir.z), el = asin(y);
-    const cell = floor(vec2(az, el).mul(140));
+    const cell = floor(vec2(az, el).mul(380));
     const h = hash12(cell);
     const tw = hash12(cell.add(floor(U.time.mul(1.5)))).mul(0.5).add(0.5);
-    const star = step(0.9965, h).mul(smoothstep(0.08, 0.3, y)).mul(n).mul(tw);
+    const star = step(0.9975, h).mul(smoothstep(0.06, 0.3, y)).mul(n).mul(tw);
     col.addAssign(vec3(0.85, 0.88, 1).mul(star));
     // moon glow at night
     const md = max(dot(dir, vec3(moonDir.x, moonDir.y, moonDir.z)), 0);

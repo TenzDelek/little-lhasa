@@ -12,12 +12,13 @@ import { input } from '../core/input';
 import { U } from '../core/uniforms';
 import { collision } from '../core/collision';
 import { clamp, damp, dampAngle } from '../core/math';
-import { useGame } from '../game/store';
+import { G, useGame } from '../game/store';
 import { view } from './view';
 import { debug } from '../game/debug';
 
 const ELEVATION = (36 * Math.PI) / 180;
 const VIEW_H = 15; // metres visible vertically at zoom 1 (iso)
+const FIT_W = 13;  // …but at least this many metres across, so portrait phones still see the street
 const ZOOMS = [0.62, 0.78, 1, 1.25, 1.6];
 
 const _right = new Vector3(), _up = new Vector3(), _p = new Vector3(), _fwd = new Vector3(), _goal = new Vector3();
@@ -34,7 +35,7 @@ export function CameraRig() {
     const az = Math.PI / 4 + (debug.az ?? 0) * (Math.PI / 2);
     const zoomIdx = clamp(debug.zoom ?? 2, 0, ZOOMS.length - 1);
     game.cam.azimuth = az;
-    return { targetAz: az, zoomIdx, zoom: ZOOMS[zoomIdx], chaseDist: 5.2, lastDrag: -10, dragAcc: 0, init: false };
+    return { targetAz: az, zoomIdx, zoom: ZOOMS[zoomIdx], chaseDist: 5.2, lastDrag: -10, dragAcc: 0, init: false, title: false };
   }, []);
 
   useEffect(() => {
@@ -76,6 +77,9 @@ export function CameraRig() {
         if (Math.abs(st.dragAcc) > 90) { st.targetAz -= Math.sign(st.dragAcc) * Math.PI / 2; st.dragAcc = 0; }
       }
       input.look.dx = 0; input.look.dy = 0;
+      // title screen: a slow turntable drift; on start, settle to the nearest diorama angle
+      if (!G().started && !debug.shot) { st.targetAz += dt * 0.08; game.cam.azimuth = st.targetAz; st.title = true; }
+      else if (st.title) { st.title = false; st.targetAz = Math.PI / 4 + Math.round((st.targetAz - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2); }
       game.cam.azimuth = dampAngle(game.cam.azimuth, st.targetAz, 7, dt);
       const settled = Math.abs(game.cam.azimuth - st.targetAz) < 2e-3;
       if (settled) game.cam.azimuth = st.targetAz;
@@ -83,7 +87,7 @@ export function CameraRig() {
       game.cam.zoom = st.zoom;
 
       const cam = cams.iso;
-      const hView = VIEW_H / st.zoom;
+      const hView = Math.max(VIEW_H, FIT_W / aspect) / st.zoom;
       const wView = hView * aspect;
       cam.left = -wView / 2; cam.right = wView / 2; cam.top = hView / 2; cam.bottom = -hView / 2;
       const R = 80, ce = Math.cos(ELEVATION);
