@@ -3,7 +3,7 @@
 import { Vector3 } from 'three';
 
 export type PlayerAction = null | {
-  kind: 'spin' | 'wave' | 'give' | 'bow' | 'light' | 'eat' | 'pet';
+  kind: 'spin' | 'wave' | 'give' | 'bow' | 'pray' | 'light' | 'eat' | 'pet' | 'talk' | 'point';
   /** Seconds since the action started. */
   t: number;
   /** Duration (s). */

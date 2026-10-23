@@ -19,6 +19,9 @@ export interface Interactable {
   enabled?: () => boolean;
   /** Higher wins when several are in reach. Default 0. */
   priority?: number;
+  /** Tenzin's animation when using it: 'spin' (wheels), 'light' (lamps), 'give', 'talk', 'pet', 'wave', 'bow'…
+   *  Default: guessed from the label. */
+  anim?: 'spin' | 'light' | 'give' | 'talk' | 'pet' | 'wave' | 'bow' | 'pray' | 'eat' | 'point';
   onInteract: () => void;
 }
 

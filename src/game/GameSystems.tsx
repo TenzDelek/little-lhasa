@@ -4,13 +4,15 @@ import { useEffect } from 'react';
 import { game } from '../core/game';
 import { input } from '../core/input';
 import { U } from '../core/uniforms';
-import { G } from './store';
+import { G, useGame } from './store';
 import { initQuests } from './quests';
 import { sfx } from '../audio/sfx';
 import { debug } from './debug';
 
 export function GameSystems() {
   useEffect(() => initQuests(), []);
+  // console handles for testing: __game (per-frame state), __store (zustand)
+  useEffect(() => { Object.assign(window, { __game: game, __store: useGame }); }, []);
   useEffect(() => {
     const s = G();
     if (debug.night && !s.night) s.toggleNight();

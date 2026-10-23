@@ -47,7 +47,7 @@ export const PAL = {
   sashRed: 0xb52a2a, sashGold: 0xd9a23a, coral: 0xd2523c, turquoise: 0x2fb2a6,
   monkMaroon: 0x7a1f2b, monkMaroonDark: 0x5a1520, monkYellow: 0xe6a92e,
   bootRed: 0x9c2a22, bootGreen: 0x2f5e4a, bootBlack: 0x1d1a1a,
-  denim: 0x3d5675, khaki: 0xa89a74, fleece: 0x8a3a3a,
+  denim: 0x3d5675, khaki: 0xa89a74, fleece: 0x8a3a3a, fur: 0x8a6a4a, furLight: 0xd8cbb4,
 
   // animals
   monkey: 0x8c7356, monkeyFace: 0xc98f7a, dogTan: 0xb58a5a, dogBlack: 0x2a2624, dogWhite: 0xe8e2d6,
