@@ -1,0 +1,16 @@
+:root {
+  --bg: #f6f3ea;
+  --fg: #23201d;
+  --muted: #77716a;
+  --accent: #8b1e2d;
+  --line: rgba(35, 32, 29, 0.16);
+  --chip: rgba(251, 251, 248, 0.82);
+  --font-display: "Young Serif", "Iowan Old Style", Georgia, serif;
+  --font-tibetan: "Noto Serif Tibetan", "Kailasa", "Microsoft Himalaya", serif;
+  --font-pixel: "Silkscreen", ui-monospace, "SF Mono", Menlo, monospace;
+}
+html, body, #root { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+.stage { position: relative; height: 100dvh; width: 100%; overflow: hidden; }
+.scene { position: absolute !important; inset: 0; }
+.scene canvas { image-rendering: pixelated; image-rendering: crisp-edges; touch-action: none; outline: none; }
