@@ -5,7 +5,7 @@
 //   momos  — Amala (Dharamkot Road) wants momos: buy a plate at Tashi's stall (Temple Road), bring it back
 //   lamps  — light 5 butter lamps in the butter-lamp house by the temple gate
 //   puppy  — Pema (Main Square) lost her puppy: find it on Bhagsu Road; it follows you home
-import { G, onGameEvent, type DialogueLine, type Choice } from './store';
+import { G, onGameEvent, onReset, type DialogueLine, type Choice } from './store';
 import { QUEST, NPC_IDS, ITEMS } from '../world/layout';
 import { sfx } from '../audio/sfx';
 
@@ -68,9 +68,11 @@ function advance(id: string, stage: number) {
 
 /** Wire quest rules to game events. Call once at startup; returns an unsubscribe. */
 export function initQuests() {
-  for (const d of QUESTS) if (d.autoStart && !G().quests[d.id]) G().patchQuest(d.id, { stage: 1 });
+  const seed = () => { for (const d of QUESTS) if (d.autoStart && !G().quests[d.id]) G().patchQuest(d.id, { stage: 1 }); };
+  seed();
+  const offReset = onReset(seed);
 
-  return onGameEvent((e) => {
+  const offEvents = onGameEvent((e) => {
     switch (e.type) {
       case 'spinWheel': {
         G().addMerit(1);
@@ -106,6 +108,7 @@ export function initQuests() {
         return;
     }
   });
+  return () => { offEvents(); offReset(); };
 }
 
 const L = (who: string, text: string, bod?: string): DialogueLine => ({ who, text, bod });

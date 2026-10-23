@@ -2,6 +2,7 @@
 // World modules talk to the game through the actions here: say() opens dialogue, emit() reports events
 // (prayer wheel spun, lamp lit, item bought…) that drive quests, toast() shows a small notice.
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export interface DialogueLine {
   /** Speaker name shown in the box, e.g. "Amala". */
@@ -83,7 +84,13 @@ interface Store {
   addMerit(n: number): void;
   patchQuest(id: string, patch: Partial<QuestState>): void;
   emit(e: GameEvent): void;
+  /** Wipe saved progress (rupees, items, errands, merit, flags) and start fresh. */
+  resetProgress(): void;
 }
+
+const FRESH = { rupees: 150, inventory: {} as Record<string, number>, merit: 0, quests: {} as Record<string, QuestState>, flags: {} as Record<string, boolean | number | string> };
+const SAVE_KEY = 'little-lhasa-save-v1';
+const noSave = typeof location !== 'undefined' && new URLSearchParams(location.search).get('shot') === '1';
 
 type Listener = (e: GameEvent) => void;
 const listeners = new Set<Listener>();
@@ -92,7 +99,7 @@ export const onGameEvent = (fn: Listener) => { listeners.add(fn); return () => {
 
 let toastId = 1;
 
-export const useGame = create<Store>()((set, get) => ({
+export const useGame = create<Store>()(persist((set, get) => ({
   started: false,
   paused: false,
   muted: false,
@@ -101,11 +108,7 @@ export const useGame = create<Store>()((set, get) => ({
   prompt: null,
   dialogue: null,
   toasts: [],
-  rupees: 150,
-  inventory: {},
-  merit: 0,
-  quests: {},
-  flags: {},
+  ...FRESH,
   panel: null,
   area: 'Main Square',
 
@@ -155,7 +158,21 @@ export const useGame = create<Store>()((set, get) => ({
     return { quests: { ...s.quests, [id]: { ...q, ...patch } } };
   }),
   emit: (e) => { for (const l of listeners) l(e); },
+  resetProgress: () => {
+    set({ ...FRESH, inventory: {}, quests: {}, flags: {} });
+    for (const l of resetListeners) l();
+  },
+}), {
+  name: SAVE_KEY,
+  storage: createJSONStorage(() => (noSave ? sessionStorage : localStorage)),
+  // only progress is saved — never UI state
+  partialize: (s) => ({ rupees: s.rupees, inventory: s.inventory, merit: s.merit, quests: s.quests, flags: s.flags, night: s.night }),
+  skipHydration: noSave,
 }));
+
+const resetListeners = new Set<() => void>();
+/** Run something after resetProgress() (quests re-seed their auto-start errands). */
+export const onReset = (fn: () => void) => { resetListeners.add(fn); return () => { resetListeners.delete(fn); }; };
 
 /** Non-React access (frame loops, event handlers). */
 export const G = () => useGame.getState();

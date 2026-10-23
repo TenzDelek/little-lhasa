@@ -10,6 +10,7 @@ import { World } from './world/World';
 import { Player } from './player/Player';
 import { attachInput } from './core/input';
 import { Hud } from './ui/Hud';
+import { Stats } from './game/Stats';
 
 export default function App() {
   const wrap = useRef<HTMLDivElement>(null);
@@ -35,6 +36,7 @@ export default function App() {
           <Player />
           <CameraRig />
           <PixelPipeline />
+          <Stats />
         </Suspense>
       </Canvas>
       <Hud />

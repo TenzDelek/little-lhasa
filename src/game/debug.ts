@@ -9,6 +9,7 @@
 //   ?shot=1                     auto-start, hide the HUD, and set window.__shotReady once frames have settled
 //   ?colliders=1                draw every collider as a wire box (debug)
 //   ?kit=1                      mount src/kit/KitPreview.tsx (kit showroom)
+//   ?stats=1                    FPS / draw calls / triangles readout (also window.__stats)
 import { SPOTS, type SpotId } from '../world/layout';
 
 const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
@@ -26,6 +27,7 @@ export const debug = {
   shot: q.get('shot') === '1',
   colliders: q.get('colliders') === '1',
   kit: q.get('kit') === '1',
+  stats: q.get('stats') === '1',
 };
 
 /** Spawn point resolved from the URL (or the default spawn). */
