@@ -53,9 +53,12 @@ export function dharamkotRoad(c: Ctx) {
   row(c, R, 1, 48.0, [
     { w: 5.6, spec: house(641, 2, { roof: 'tinHip', flags: true }), opts: { depth: 6.5 } },
     { w: 5.2, spec: house(651, 3, { roof: 'flat', tanks: 2, clothes: true }), opts: { depth: 6.5 } },
-    { w: 6.0, spec: house(661, 2, { roof: 'tin', tibetan: true }), opts: { extraLift: 0.17, depth: 6.5 }, gapBefore: 1.6 },
+    { w: 6.0, spec: house(661, 2, { roof: 'tin', tibetan: true }), opts: { extraLift: 0.17, depth: 6.5 }, gapBefore: 2.1 },
     { w: 5.4, spec: house(671, 2, { roof: 'terrace' }), opts: { depth: 6.5 } },
   ]);
+
+  // a second stepped lane up the slope, between the houses above the school
+  stairLane(c, R, 1, 48.0 + 5.6 + 0.15 + 5.2 + 0.15 + 1.05, 1.2);
 
   // trees in the gaps between houses
   const gap = (s: number, side: 1 | -1, off: number, kind: 'deodar' | 'oak' | 'rhodo' | 'deodarMid' | 'bush', scale = 1) => {
@@ -65,7 +68,7 @@ export function dharamkotRoad(c: Ctx) {
   };
   gap(32.55, -1, 2.6, 'rhodo', 0.85);
   gap(46.4, -1, 3.0, 'deodar', 0.95);
-  gap(59.5, 1, 1.5, 'rhodo', 0.8);
+  gap(73.2, 1, 1.2, 'rhodo', 0.8);
   gap(75.2, 1, 3.0, 'deodar', 0.9);
   gap(74.6, -1, 3.5, 'oak', 0.9);
   gap(16.6, 1, 2.6, 'bush', 1.1);

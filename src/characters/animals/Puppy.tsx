@@ -1,14 +1,17 @@
 // Pema's puppy (quest 'puppy'): small, brown, ONE WHITE EAR.
 //   hiding  — curled up in the nook behind the tea shop on Bhagsu Road; yips when Tenzin is near.
-//             'Call the puppy' → G().emit({ type: 'found', id: ITEMS.puppy }) (quests.ts sets puppyFollowing).
+//             'Pick up the puppy' → G().emit({ type: 'found', id: ITEMS.puppy }) (quests.ts sets puppyFollowing).
 //   follow  — trots / gallops ~1.2 m behind Tenzin, hops when he jumps, sits when he stops, yips now and then.
 //             Never walks through walls (collision.resolve); if it falls > 6 m behind or gets stuck it is
-//             teleported behind him.
+//             teleported behind him. On a fresh load with the flag already set it starts right next to him.
 //   home    — after the quest (flags.puppyHome) it stays with Pema on the square, circling her, rolling over,
 //             play-bowing; at night it sleeps curled at her feet.
+// A small dynamic collider (parked while following, so it never trips Tenzin up) keeps people from walking
+// through it.
 import { useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, type Object3D } from 'three';
+import { collision, type CircleCollider } from '../../core/collision';
 import { game } from '../../core/game';
 import { interactions } from '../../core/interact';
 import { clamp, damp, rng } from '../../core/math';
@@ -24,6 +27,7 @@ type Mode = 'hide' | 'follow' | 'home';
 type Play = 'circle' | 'roll' | 'sit' | 'bow' | 'toBoy' | 'sleep';
 
 const FOLLOW = 1.2;
+const PLAYS: Play[] = ['circle', 'roll', 'sit', 'bow', 'circle', 'toBoy'];
 
 function hideSpot() {
   const s = optSpot('hillside', 'PUPPY_NOOK') ?? optSpot('hillside', 'PUPPY_SPOT');
@@ -51,6 +55,12 @@ function pemaSpot(scene: Object3D | null) {
   return _pema;
 }
 
+/** Shared result of the follow / home helpers (no per-frame allocation). */
+const OUT = { pose: 'stand' as QPose, look: 0, sleep: false, roll: 0, tailLift: 0 };
+function out(pose: QPose, look: number, sleep: boolean, roll: number, tailLift: number) {
+  OUT.pose = pose; OUT.look = look; OUT.sleep = sleep; OUT.roll = roll; OUT.tailLift = tailLift;
+}
+
 export function Puppy() {
   const scene = useThree((st) => st.scene);
   const rig = useMemo(() => { const r = buildPuppy(); r.root.name = 'puppy'; return r; }, []);
@@ -65,7 +75,7 @@ export function Puppy() {
       sitT: 0, jumpQ: -1, wasAir: false, farT: 0, stuckT: 0, pant: 0, happyT: 0,
       // home
       play: 'sit' as Play, playT: 0, playDur: 4, ang: 0, roll: 0, lapDir: 1,
-      ipos: new Vector3(), hide: h, placed: false,
+      ipos: new Vector3(), hide: h, placed: false, dyn: null as CircleCollider | null,
     };
   }, []);
 
@@ -80,14 +90,15 @@ export function Puppy() {
   useEffect(() => {
     const place = () => {
       const h = hideSpot();
-      S.hide = h;
-      if (S.mode !== 'hide') return;
+      if (S.mode !== 'hide') { S.hide = h; return; }
+      if (S.dyn) { S.dyn.x = 1e6; S.dyn.z = 1e6; } // not blocked by ourselves
       let y = floorAt(h.x, h.z, groundY(h.x, h.z) + 0.35, 0.1, 0.1);
       let x = h.x, z = h.z;
       if (blocked(x, y, z, 0.12, 0.3)) {
         const f = freeSpot(h.x, h.z, 0.16, 0.35, 1.5);
         if (f) { x = f.x; y = f.y; z = f.z; }
       }
+      S.hide = { x, z, yaw: h.yaw };
       S.m.teleport(x, y, z);
       S.m.yaw = h.yaw;
       S.placed = true;
@@ -98,7 +109,7 @@ export function Puppy() {
     const t1 = setTimeout(place, 2500), t2 = setTimeout(place, 9000);
     const offA = interactions.add({
       id: 'puppy-call', pos: () => S.ipos, radius: 1.7, priority: 1, anim: 'pet',
-      label: () => ((G().quests.puppy?.stage ?? 0) >= 1 ? 'Pick up Pema’s puppy' : 'Call the puppy'),
+      label: 'Pick up the puppy',
       enabled: () => S.mode === 'hide' && !G().flags.puppyFollowing && !G().flags.puppyHome,
       onInteract: () => {
         S.happyT = 1.6; S.wag = 1;
@@ -108,14 +119,18 @@ export function Puppy() {
     });
     const offB = interactions.add({
       id: 'puppy-pet', pos: () => S.ipos, radius: 1.2, priority: -1, anim: 'pet', label: 'Pet the puppy',
-      enabled: () => S.mode !== 'hide' && S.happyT <= 0,
+      // while following he sits ~1.2 m behind: only offer it when Tenzin actually turns to him
+      enabled: () => S.mode !== 'hide' && S.happyT <= 0 && (S.mode === 'home' || hdist(S.m.pos, game.player.pos) < 0.95),
       onInteract: () => {
         S.happyT = 1.6; S.wag = 1;
         sfxAt('bark', S.m.pos.x, S.m.pos.z, 0.4);
         G().emit({ type: 'pet', animal: 'puppy' });
       },
     });
-    return () => { clearTimeout(t1); clearTimeout(t2); offA(); offB(); };
+    const dyn = collision.addDynamic({ x: S.m.pos.x, z: S.m.pos.z, r: 0.16, y0: S.m.pos.y, y1: S.m.pos.y + 0.32 });
+    S.dyn = dyn.collider;
+    S.m.w.dyn = dyn.collider;
+    return () => { clearTimeout(t1); clearTimeout(t2); offA(); offB(); dyn.remove(); S.dyn = null; S.m.w.dyn = undefined; };
   }, [S, rig]);
 
   useFrame(() => {
@@ -127,6 +142,16 @@ export function Puppy() {
       S.mode = want;
       S.farT = 0; S.stuckT = 0; S.sitT = 0;
       if (want === 'home') { S.play = 'circle'; S.playT = 0; S.playDur = 6; }
+      // a saved game loaded with the puppy already found (or the flag set from afar): start where it
+      // belongs right away, not in the nook
+      if (want === 'follow' && hdist(S.m.pos, game.player.pos) > 4) teleportBehind();
+      if (want === 'home') {
+        const c = pemaSpot(scene);
+        const f = hdist(S.m.pos, c) > 12 ? freeSpot(c.x + 0.6, c.z + 0.45, 0.16, 0.35, 1.5) : null;
+        if (f) { S.m.teleport(f.x, f.y, f.z); snapQuad(rig); }
+      }
+      // progress wiped (new game): back to the nook
+      if (want === 'hide') { const h = S.hide; S.m.teleport(h.x, floorAt(h.x, h.z, groundY(h.x, h.z) + 0.35, 0.1, 0.1), h.z); S.m.yaw = h.yaw; S.awake = 0; snapQuad(rig); }
     }
     const p = game.player, P = p.pos, m = S.m;
     const dist = hdist(m.pos, P);
@@ -137,8 +162,6 @@ export function Puppy() {
     S.happyT -= dt;
     S.earT -= dt;
     if (S.earT <= 0) { S.earT = 2 + S.r() * 5; S.ear = S.r() > 0.5 ? 0.8 : -0.8; }
-    const yip = (vol = 0.5) => { sfxAt('bark', m.pos.x, m.pos.z, vol); S.mouth = 1; S.ear = 1; };
-
     let pose: QPose = 'stand';
     let look = 0, sleep = false, roll = 0, tailLift = 0;
 
@@ -160,13 +183,15 @@ export function Puppy() {
         look = m.lookAt(P.x, P.z);
         if (dist < 4) S.wag = Math.max(S.wag, 0.6);
         S.yipT -= dt;
-        if (S.yipT <= 0) { S.yipT = 3.5 + S.r() * 4; yip(0.45); }
+        if (S.yipT <= 0) { S.yipT = 3.5 + S.r() * 4; sfxAt('bark', m.pos.x, m.pos.z, 0.45); S.mouth = 1; S.ear = 1; }
       }
     } else if (S.mode === 'follow') {
       follow(dt);
-      ({ pose, look } = followPose());
+      followPose();
+      pose = OUT.pose; look = OUT.look;
     } else {
-      ({ pose, look, sleep, roll, tailLift } = home(dt, night));
+      home(dt, night);
+      ({ pose, look, sleep, roll, tailLift } = OUT);
     }
 
     const moving = m.vel > 0.3;
@@ -181,6 +206,11 @@ export function Puppy() {
     rig.root.position.copy(m.pos);
     rig.root.rotation.y = m.yaw;
     S.ipos.set(m.pos.x, m.pos.y + 0.15, m.pos.z);
+    if (S.dyn) {
+      const park = S.mode === 'follow';
+      S.dyn.x = park ? 1e6 : m.pos.x; S.dyn.z = park ? 1e6 : m.pos.z;
+      S.dyn.y0 = m.pos.y; S.dyn.y1 = m.pos.y + 0.32;
+    }
   });
 
   // ---- follow ---------------------------------------------------------------------------------------------
@@ -218,10 +248,11 @@ export function Puppy() {
     }
   }
 
-  function followPose(): { pose: QPose; look: number } {
+  function followPose() {
     const P = game.player.pos, m = S.m;
     const sit = S.sitT > 0.35;
-    return { pose: sit ? (Math.sin(game.time * 0.21) > 0.93 ? 'bow' : 'sit') : 'stand', look: sit ? m.lookAt(P.x, P.z) : 0 };
+    OUT.pose = sit ? (Math.sin(game.time * 0.21) > 0.93 ? 'bow' : 'sit') : 'stand';
+    OUT.look = sit ? m.lookAt(P.x, P.z) : 0;
   }
 
   function teleportBehind() {
@@ -243,8 +274,19 @@ export function Puppy() {
     }
   }
 
+  /** Pick the next game to play by Pema. */
+  function nextPlay(c: { x: number; z: number }) {
+    const m = S.m, P = game.player.pos;
+    let n = PLAYS[Math.floor(S.r() * PLAYS.length)];
+    if (n === 'toBoy' && hdist(P, c) > 5) n = 'sit';
+    S.play = n; S.playT = 0;
+    S.playDur = n === 'circle' ? 5 + S.r() * 3 : n === 'roll' ? 2.6 : n === 'toBoy' ? 5 : 2.5 + S.r() * 3;
+    S.lapDir = S.r() > 0.5 ? 1 : -1;
+    if (n === 'bow') { sfxAt('bark', m.pos.x, m.pos.z, 0.4); S.mouth = 1; }
+  }
+
   // ---- home with Pema ---------------------------------------------------------------------------------------
-  function home(dt: number, night: boolean): { pose: QPose; look: number; sleep: boolean; roll: number; tailLift: number } {
+  function home(dt: number, night: boolean) {
     const m = S.m, P = game.player.pos;
     const c = pemaSpot(scene);
     const dc = hdist(m.pos, c);
@@ -254,19 +296,10 @@ export function Puppy() {
       // still on the way to her
       m.to(c.x + 0.8, c.z + 0.6, 2.8, dt, 0.4);
       if (dc > 30) { const f = freeSpot(c.x + 0.8, c.z + 0.6, 0.16); if (f) m.teleport(f.x, f.y, f.z); }
-      return { pose, look, sleep, roll, tailLift };
+      return out(pose, look, sleep, roll, tailLift);
     }
     if (night && S.play !== 'sleep') { S.play = 'sleep'; S.playT = 0; }
     if (!night && S.play === 'sleep') { S.play = 'circle'; S.playT = 0; S.playDur = 6; }
-    const next = () => {
-      const opts: Play[] = ['circle', 'roll', 'sit', 'bow', 'circle', 'toBoy'];
-      let n = opts[Math.floor(S.r() * opts.length)];
-      if (n === 'toBoy' && hdist(P, c) > 5) n = 'sit';
-      S.play = n; S.playT = 0;
-      S.playDur = n === 'circle' ? 5 + S.r() * 3 : n === 'roll' ? 2.6 : n === 'toBoy' ? 5 : 2.5 + S.r() * 3;
-      S.lapDir = S.r() > 0.5 ? 1 : -1;
-      if (n === 'bow') { sfxAt('bark', m.pos.x, m.pos.z, 0.4); S.mouth = 1; }
-    };
     switch (S.play) {
       case 'circle': {
         // run round Pema
@@ -274,7 +307,7 @@ export function Puppy() {
         const tx = c.x + Math.sin(S.ang) * 1.0, tz = c.z + Math.cos(S.ang) * 1.0;
         m.to(tx, tz, 2.2, dt, 0.2, 9);
         S.wag = Math.max(S.wag, 0.8);
-        if (S.playT > S.playDur) next();
+        if (S.playT > S.playDur) nextPlay(c);
         break;
       }
       case 'roll': {
@@ -284,7 +317,7 @@ export function Puppy() {
         const k = clamp(S.playT / S.playDur);
         roll = Math.sin(k * Math.PI) * Math.PI * 0.95 * (k < 0.15 || k > 0.85 ? Math.sin(k * Math.PI) : 1);
         S.wag = 0.6;
-        if (S.playT > S.playDur) next();
+        if (S.playT > S.playDur) nextPlay(c);
         break;
       }
       case 'sit':
@@ -295,7 +328,7 @@ export function Puppy() {
         look = m.lookAt(hdist(P, m.pos) < 3 ? P.x : c.x, hdist(P, m.pos) < 3 ? P.z : c.z);
         S.wag = Math.max(S.wag, S.play === 'bow' ? 1 : 0.5);
         tailLift = S.play === 'bow' ? 0.4 : 0;
-        if (S.playT > S.playDur) next();
+        if (S.playT > S.playDur) nextPlay(c);
         break;
       }
       case 'toBoy': {
@@ -304,7 +337,7 @@ export function Puppy() {
         if (S.playT < 2.5 && d > 0.9) m.to(P.x, P.z, 2.6, dt, 0.5); else { m.idle(dt); m.faceTo(P.x, P.z, dt, 5); pose = 'sit'; }
         look = m.lookAt(P.x, P.z);
         S.wag = 1;
-        if (S.playT > S.playDur) next();
+        if (S.playT > S.playDur) nextPlay(c);
         break;
       }
       case 'sleep': {
@@ -314,7 +347,7 @@ export function Puppy() {
         break;
       }
     }
-    return { pose, look, sleep, roll, tailLift };
+    return out(pose, look, sleep, roll, tailLift);
   }
 
   return <primitive object={rig.root} />;

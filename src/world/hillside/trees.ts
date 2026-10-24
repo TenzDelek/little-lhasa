@@ -2,9 +2,10 @@
 // merged into one geometry per variant (instanced by the forest). Gorshey-like chunky silhouettes:
 //   deodar    tall Himalayan cedar: stacked drooping skirts, dark blue-green, lighter tip layer + leader
 //   deodarMid a fuller, shorter deodar          sapling  young deodar, 4 tiers
-//   pine      chir pine: tall bare reddish trunk, umbrella crown of yellow-green needle clumps
-//   oak       banj oak: forked trunk, rounded grey-green crown of clumps
-//   rhodo     rhododendron tree: gnarled trunk, dark glossy crown studded with red blossom clusters
+//   pine      chir pine: tall bare reddish trunk, umbrella crown of yellow-green needle clumps (+ pineB)
+//   oak       banj oak: forked trunk, rounded grey-green crown of clumps (+ oakB)
+//   rhodo     rhododendron tree: gnarled trunk, dark glossy crown studded with red blossom clusters (+ rhodoB)
+// The B variants are different seeds / heights of the same species, so stands don't read as clones.
 //   bush / bushDry / fern / rock / rockFlat   understory
 // Every geometry has its origin at the base (y = 0 on the ground, sunk a little below it).
 import { BufferGeometry, DodecahedronGeometry, Float32BufferAttribute, IcosahedronGeometry } from 'three';
@@ -14,7 +15,7 @@ import { lerp, rng, type Rng } from '../../core/math';
 import { jit, rod } from './util';
 
 export type TreeKind =
-  | 'deodar' | 'deodarMid' | 'sapling' | 'pine' | 'oak' | 'rhodo'
+  | 'deodar' | 'deodarMid' | 'sapling' | 'pine' | 'oak' | 'rhodo' | 'pineB' | 'oakB' | 'rhodoB'
   | 'bush' | 'bushDry' | 'fern' | 'rock' | 'rockFlat';
 
 export interface Variant {
@@ -269,8 +270,11 @@ export function treeVariants(): Record<TreeKind, Variant> {
     deodarMid: v('deodarMid', deodar(23, 8.0, 6, 2.2), 8.0, 1.4, 0.26, 0.24, 2.2),
     sapling: v('sapling', deodar(37, 4.2, 4, 1.25, 6), 4.2, 0.6, 0.18, 0.14, 1.25),
     pine: v('pine', pine(41, 10.5), 10.5, 3.5, 0.4, 0.22, 2.0),
+    pineB: v('pineB', pine(47, 9.0), 9.0, 3.0, 0.38, 0.2, 1.9),
     oak: v('oak', oak(53, 7.2), 7.2, 2.4, 0.22, 0.24, 2.6),
+    oakB: v('oakB', oak(61, 6.2), 6.2, 2.1, 0.2, 0.22, 2.4),
     rhodo: v('rhodo', rhodo(67, 5.2), 5.2, 1.5, 0.16, 0.18, 1.8),
+    rhodoB: v('rhodoB', rhodo(97, 4.3), 4.3, 1.2, 0.15, 0.16, 1.6),
     bush: v('bush', bush(71, false), 1.0, 0.1, 0.06, 0, 0.8, false),
     bushDry: v('bushDry', bush(73, true), 1.0, 0.1, 0.06, 0, 0.8, false),
     fern: v('fern', fern(79), 0.6, 0.05, 0.07, 0, 0.6, false),

@@ -9,7 +9,7 @@ import { groundY, worldMask, roadQuery } from '../terrain';
 import { srng, beam } from '../../kit/street';
 import type { FlagLine } from '../../kit/flags';
 import { type PCtx, count, solidCircle } from './ctx';
-import { DHARAMKOT, JOGIWARA, TEMPLE_RD, BHAGSU, edgePt, freeRange, stripOK, territoryOK, type EdgePt } from './plan';
+import { DHARAMKOT, JOGIWARA, TEMPLE_RD, BHAGSU, edgePt, freeRange, postPt, stripOK, territoryOK, type EdgePt } from './plan';
 import { safeSag } from './power';
 import type { Road } from '../layout';
 
@@ -47,8 +47,8 @@ export function flagPole(c: PCtx, p: EdgePt, H: number, seed: number): V3 {
 function flagPoleSpot(c: PCtx, road: Road, s: number, side: 1 | -1): EdgePt | null {
   for (let k = 0; k <= 8; k++) {
     const ss = s + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.6;
-    const p = edgePt(road, ss, side, 0.3);
-    if (!stripOK(p, 0.3)) continue;
+    const p = postPt(road, ss, side);
+    if (!stripOK(p, p.off)) continue;
     if (c.obs.blocked(p.x, p.z, 0.28, p.y, p.y + 9)) continue;
     if (c.obs.structureDist(p.x, p.z, 1.5, 2.5) < 0.85) continue;
     return p;
@@ -156,10 +156,10 @@ export function buildHillFlags(c: PCtx) {
       lines.push({ a: top, b, sag: span * (0.04 + r() * 0.03), age: ageOf(r), size: 0.24, seed: Math.floor(r() * 1e6) });
     }
     // cairns on the open slope
-    const want = 4 - lines.length;
+    const want = 6 - lines.length;
     const base = Math.atan2(p.oz, p.ox);
-    for (let k = 0, made = 0; k < 12 && made < want; k++) {
-      const a = base + (r() - 0.5) * 1.9, d = 11 + r() * 9;
+    for (let k = 0, made = 0; k < 18 && made < want; k++) {
+      const a = base + (r() - 0.5) * 2.2, d = 10 + r() * 12;
       const x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
       if (worldMask(x, z) < 0.7 || !territoryOK(x, z, 1)) continue;
       if (roadQuery(x, z).edge < 2) continue;

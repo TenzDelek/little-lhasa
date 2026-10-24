@@ -74,6 +74,7 @@ export function attachInput(target: HTMLElement) {
   let drag: { id: number; x: number; y: number } | null = null;
   const pdown = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return; // touch look is handled by the touch UI's look pad
+    if ((e.target as HTMLElement | null)?.closest?.('.hud')) return; // clicks on HUD controls never drag the camera
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
   };
   const pmove = (e: PointerEvent) => {

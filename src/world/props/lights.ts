@@ -7,8 +7,8 @@ import type { Lamp } from '../../core/lamps';
 import { PAL } from '../../core/palette';
 import { pick } from '../../core/math';
 import { streetLamp, bin, beam, srng, type LampKind } from '../../kit/street';
-import { type PCtx, count, solid } from './ctx';
-import { STREETS, edgePt, freeRange, stripOK, type EdgePt } from './plan';
+import { type PCtx, count, mark, solid } from './ctx';
+import { STREETS, edgePt, freeRange, postPt, propPt, stripOK, type EdgePt } from './plan';
 
 const KINDS: Record<string, readonly LampKind[]> = {
   'temple-road': ['arm', 'old', 'arm'],
@@ -16,16 +16,15 @@ const KINDS: Record<string, readonly LampKind[]> = {
   'bhagsu-road': ['solar', 'arm', 'solar'],
   'dharamkot-road': ['solar', 'old', 'arm'],
 };
-const OFF = 0.3;
-
-/** Points the lamp search may use: own strip, free of foreign solids, not right under a balcony. */
-function lampSpot(c: PCtx, road: EdgePt['road'], s: number, side: 1 | -1, s0: number, s1: number): EdgePt | null {
+/** Points the lamp search may use: own strip (kerb or verge, never a drain), free of foreign solids, not
+ *  right under a balcony. */
+function lampSpot(c: PCtx, road: EdgePt['road'], s: number, side: 1 | -1, s0: number, s1: number) {
   for (let k = 0; k <= 14; k++) {
     const d = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.7;
     const ss = s + d;
     if (ss < s0 || ss > s1) continue;
-    const p = edgePt(road, ss, side, OFF);
-    if (!stripOK(p, OFF)) continue;
+    const p = postPt(road, ss, side);
+    if (!stripOK(p, p.off)) continue;
     if (c.obs.blocked(p.x, p.z, 0.32, p.y + 0.05, p.y + 4.9)) continue;
     if (c.obs.structureDist(p.x, p.z, 1.5, 2.5) < 0.9) continue; // balconies / chajjas hang ~0.7 m out
     // keep the arm and head clear too
@@ -85,6 +84,7 @@ export function buildLights(c: PCtx) {
           const L = bracketLamp(c.tall, [f.x, y, f.z], q.yawIn, Math.min(2.2, reach), 9100 + i * 7 + road.width * 3);
           c.lamps.push(L);
           count(c, 'bracketLamps');
+          mark(c, 'bracket:' + road.id, f.x, f.z);
           done = true;
           break;
         }
@@ -92,16 +92,18 @@ export function buildLights(c: PCtx) {
         if (!p) continue;
       }
       const kind = kinds[i % kinds.length];
-      const { lamp, collider } = streetLamp(c.tall, p.x, p.y, p.z, p.yawIn, kind, 7000 + i * 31 + Math.round(s * 7));
+      // on the kerb the concrete footing sinks into it (only the base flange shows)
+      const { lamp, collider } = streetLamp(c.tall, p.x, p.kerb ? p.y - 0.12 : p.y, p.z, p.yawIn, kind, 7000 + i * 31 + Math.round(s * 7));
       solid(c, collider);
       c.lamps.push(lamp);
       count(c, 'lamps');
+      mark(c, 'lamp:' + road.id + (p.kerb ? ':kerb' : ''), p.x, p.z);
 
       // a bin beside every few lamps (on the strip, a step further along)
       if (i % 3 === 1) {
         for (const d of [1.1, -1.1, 1.8, -1.8]) {
-          const q = edgePt(road, p.s + d, p.side, 0.28);
-          if (!stripOK(q, 0.28) || c.obs.blocked(q.x, q.z, 0.55, q.y, q.y + 1)) continue;
+          const q = propPt(road, p.s + d, p.side, 0.5);
+          if (!stripOK(q, q.off) || c.obs.blocked(q.x, q.z, 0.55, q.y, q.y + 1)) continue;
           if (c.obs.structureDist(q.x, q.z, 1, 2) < 0.15) continue;
           const twin = i % 2 === 0 && c.obs.structureDist(q.x, q.z, 1.5, 2) > 1.2;
           solid(c, bin(c.small, q.x, q.y, q.z, PAL.roofGreen, { kind: twin ? 'twin' : 'drum', yaw: q.yawIn, seed: 300 + i }));

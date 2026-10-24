@@ -130,8 +130,8 @@ export function viewpoint(c: Ctx) {
   // rhododendrons around the plaza, a couple of bushes
   const around: [number, number, 'rhodo' | 'bush', number][] = [
     [x0 - 2.0, z0 + 3.0, 'rhodo', 1.0], [x0 - 2.4, z1 - 5.5, 'rhodo', 0.85], [x1 + 2.0, z0 + 4.5, 'rhodo', 1.1],
-    [x1 + 2.2, z1 - 2.0, 'rhodo', 0.9], [x0 + 3.0, z0 - 2.2, 'rhodo', 0.8], [x1 - 2.5, z0 - 2.4, 'bush', 1.2],
-    [x0 - 1.5, z0 - 1.0, 'bush', 1.0],
+    [x1 + 2.2, z1 - 2.0, 'rhodo', 0.9], [x0 - 2.6, z0 - 1.6, 'rhodo', 0.8], [x1 - 2.5, z0 - 2.4, 'bush', 1.2],
+    [x0 + 1.5, z0 - 1.8, 'bush', 1.0], [x0 + 6.5, z0 - 2.0, 'bush', 0.8],
   ];
   for (const [x, z, kind, scale] of around) c.trees.push({ x, z, kind, scale });
 

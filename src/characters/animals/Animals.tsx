@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import { collision } from '../../core/collision';
 import { Zoo, zooOn } from './Zoo';
+import { openToward, TO_CAM } from './nav';
 import { Dogs } from './Dogs';
 import { Puppy } from './Puppy';
 import { Cows } from './Cows';
@@ -30,6 +31,8 @@ export function Animals() {
           }
           return out;
         },
+        /** Can the default camera see (x, y, z)? (no collider in the way) */
+        seen: (x: number, y: number, z: number) => openToward(x, y + 0.3, z, TO_CAM[0], TO_CAM[1], TO_CAM[2], 18),
       },
     });
   }, [scene, camera]);

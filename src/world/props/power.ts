@@ -6,7 +6,7 @@ import type { V3 } from '../../core/geom';
 import { groundY } from '../terrain';
 import { powerPole, wire, srng, sagAt, type PoleKind } from '../../kit/street';
 import { type PCtx, count, solid } from './ctx';
-import { STREETS, edgePt, freeRange, stripOK, type EdgePt, type Facade } from './plan';
+import { STREETS, edgePt, freeRange, postPt, stripOK, type EdgePt, type Facade } from './plan';
 import type { Road } from '../layout';
 
 export interface PoleInfo { p: EdgePt; top: V3; tips: V3[]; low: V3; kind: PoleKind }
@@ -30,12 +30,12 @@ export function safeSag(a: V3, b: V3, want: number, clear = MIN_CLEAR): number {
   return -1; // even a taut line is too low
 }
 
-function poleSpot(c: PCtx, road: Road, s: number, side: 1 | -1, s0: number, s1: number): EdgePt | null {
+function poleSpot(c: PCtx, road: Road, s: number, side: 1 | -1, s0: number, s1: number) {
   for (let k = 0; k <= 16; k++) {
     const ss = s + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.8;
     if (ss < s0 || ss > s1) continue;
-    const p = edgePt(road, ss, side, 0.32);
-    if (!stripOK(p, 0.32)) continue;
+    const p = postPt(road, ss, side);
+    if (!stripOK(p, p.off)) continue;
     if (c.obs.blocked(p.x, p.z, 0.36, p.y + 0.05, p.y + 7.6)) continue;
     if (c.obs.structureDist(p.x, p.z, 1.6, 2.5) < 0.85) continue;
     // the crossbar reaches 0.85 m to each side across the road: keep its outer end out of walls
@@ -66,7 +66,7 @@ export function buildPower(c: PCtx): PoleInfo[] {
       if (!p) continue;
       const roll = r();
       const kind: PoleKind = roll < 0.62 ? 'concrete' : roll < 0.88 ? 'wood' : 'rail';
-      const P = powerPole(c.tall, p.x, p.y, p.z, p.yawAlong, kind, 5200 + Math.round(p.x * 31 + p.z * 17));
+      const P = powerPole(c.tall, p.x, p.kerb ? p.y - 0.12 : p.y, p.z, p.yawAlong, kind, 5200 + Math.round(p.x * 31 + p.z * 17));
       solid(c, P.collider);
       const info: PoleInfo = { p, top: P.top, tips: P.tips, low: P.low, kind };
       poles.push(info);

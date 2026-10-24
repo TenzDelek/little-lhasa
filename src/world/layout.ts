@@ -110,8 +110,8 @@ export const SPOTS = {
   amalaHouse: { x: 22, z: -42, ry: -Math.PI / 2 }, // Amala's house, door facing west onto the road
   viewpoint: { x: 30, z: -85, ry: 0 },
   // Bhagsu Road
-  puppyHideout: { x: 61, z: -12, ry: 0 },          // lost puppy, behind the tea shop on the road's north side
-  teaShop: { x: 58, z: -12, ry: 0 },
+  puppyHideout: { x: 62.3, z: -11.4, ry: Math.PI }, // mouth of the nook behind the tea shop where the lost puppy hides
+  teaShop: { x: 57.8, z: -9.6, ry: 3.43 },         // customer side of the tea-shack counter
   // Square: kid who lost the puppy
   pemaKid: { x: -6, z: 6, ry: 0.4 },
 } as const;

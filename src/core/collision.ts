@@ -32,7 +32,8 @@ export type BoxInit = Omit<BoxCollider, 'kind' | 'rot'> & { rot?: number };
 export type CircleInit = Omit<CircleCollider, 'kind'>;
 
 const CELL = 8;
-const key = (i: number, j: number) => i * 73856093 ^ j * 19349663;
+// unique per cell for |i|, |j| < 4096 (cells are 8 m, so ±32 km): no unrelated cells share a bucket
+const key = (i: number, j: number) => (i + 4096) * 8192 + (j + 4096);
 
 /** Closest point on a collider to (px, pz) in xz, and whether p is inside. */
 function closest(c: Collider, px: number, pz: number) {

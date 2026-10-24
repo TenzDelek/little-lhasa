@@ -7,14 +7,17 @@
 import { useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Group, Vector3 } from 'three';
-import { collision, type BoxCollider } from '../../core/collision';
+import { collision, type BoxCollider, type CircleCollider } from '../../core/collision';
 import { game } from '../../core/game';
 import { angleDelta, clamp, damp, dampAngle, rng, type Rng } from '../../core/math';
 import { roadById, roadFrame, roadLength } from '../../world/layout';
 import { groundY, roadQuery, walkable } from '../../world/terrain';
 import { animateQuad, snapQuad, type QPose, type QuadRig } from './quad';
 import { buildLangur, buildMacaque } from './species';
-import { animalsBus, blocked, blockedToward, floorAt, hdist, isNight, perchPoint, roofPerches, setProbeScene, sfxAt, topAt, type Perch } from './nav';
+import {
+  animalsBus, blocked, floorAt, hdist, isNight, openToward, perchPoint, pumpTops, requestTop, roofPerches, setProbeScene, sfxAt, topsStatus, TO_CAM, edgeSeat, resolveSeat, type EdgeSeat,
+  type Perch, type TopQuery,
+} from './nav';
 
 type Kind = 'macaque' | 'langur';
 type St = 'sit' | 'walk' | 'leap' | 'land' | 'groom' | 'groomed' | 'sleep';
@@ -29,6 +32,8 @@ interface Monkey {
   leap: Leap | null; partner: Monkey | null; fleeCD: number;
   bus: { pos: Vector3; leaping: boolean };
   home: number;
+  /** Dynamic collider (blocks people when the monkey is down at their level; parked mid-leap). */
+  dyn: CircleCollider | null;
 }
 
 const MAC_N = 6, LANGUR_N = 4;
@@ -83,7 +88,7 @@ const heightOk = (c: BoxCollider, lo: number, hi: number) => {
 
 function perchesFor(kind: Kind): Perch[] {
   if (kind === 'macaque') {
-    const roofs = roofPerches((c) => c.tag === 'building' && nearRoad(c, 'temple-road', 15, 3) && heightOk(c, 1.5, 18), 0.1, 0.6, VIEW);
+    const roofs = roofPerches((c) => (c.tag === 'building' || c.tag === 'parapet') && nearRoad(c, 'temple-road', 15, 3) && heightOk(c, 1.5, 18), 0.1, 0.6, VIEW);
     const walls = roofPerches((c) => (c.tag === 'wall' || c.tag === 'railing') && (nearRoad(c, 'temple-road', 10, 3) || nearRoad(c, 'kora-path', 6)) && heightOk(c, 0.8, 4), 0.02, 0.25);
     const all = [...roofs, ...walls];
     return all.length >= 3 ? all : [...all, ...templeGround()];
@@ -92,74 +97,76 @@ function perchesFor(kind: Kind): Perch[] {
   return [...koraGround().filter((p) => walkable(p.x, p.z) && !blocked(p.x, p.y, p.z, 0.2, 0.5)), ...walls];
 }
 
-// Real seat heights along each roof perch (parapet tops, tin roof slopes), sampled every 0.4 m in the
-// background — one raycast per frame, perches with monkeys on them first (see refineOne).
+// Real seats along each roof perch (parapet tops, tin roof slopes, the true edge past an overhang), sampled
+// every 0.4 m with nav.ts edgeSeat (batched queries, answered within a few frames of a rescan; until then the
+// collider top).
 const STEP = 0.4;
-interface Heights { hs: Float32Array; done: Uint8Array; left: number }
-const heights = new WeakMap<Perch, Heights>();
-function hOf(p: Perch): Heights {
+type Seat = EdgeSeat;
+const seat = resolveSeat;
+const heights = new WeakMap<Perch, Seat[]>();
+const _rp = new Vector3();
+function hOf(p: Perch): Seat[] {
   let h = heights.get(p);
   if (!h) {
-    const n = Math.max(1, Math.round((p.half * 2) / STEP) + 1);
-    h = { hs: new Float32Array(n).fill(p.y), done: new Uint8Array(n), left: n };
+    h = [];
+    if (p.owner) {
+      const n = Math.max(1, Math.round((p.half * 2) / STEP) + 1);
+      const nx = Math.sin(p.yaw), nz = Math.cos(p.yaw);
+      for (let i = 0; i < n; i++) { perchPoint(p, -p.half + i * STEP, _rp); h.push(edgeSeat(_rp.x, _rp.z, nx, nz, p.y)); }
+    }
     heights.set(p, h);
   }
   return h;
 }
-function heightAt(p: Perch, u: number): number {
+const _sa = { y: 0, off: 0 };
+/** Seat height and inset at offset u along a perch. */
+function seatOn(p: Perch, u: number) {
   const h = hOf(p);
-  const f = clamp((u + p.half) / STEP, 0, h.hs.length - 1);
-  const i = Math.floor(f), j = Math.min(h.hs.length - 1, i + 1), k = f - i;
-  const a = h.done[i] ? h.hs[i] : p.y, b = h.done[j] ? h.hs[j] : a;
-  return a + (b - a) * k;
+  if (!h.length) { _sa.y = p.y; _sa.off = 0; return _sa; }
+  const f = clamp((u + p.half) / STEP, 0, h.length - 1);
+  const i = Math.floor(f), j = Math.min(h.length - 1, i + 1), k = f - i;
+  const a = seat(h[i]), b = seat(h[j]);
+  const ya = a.ok ? a.y : p.y, yb = b.ok ? b.y : ya;
+  _sa.y = ya + (yb - ya) * k;
+  _sa.off = a.ok && b.ok ? a.off + (b.off - a.off) * k : a.ok ? a.off : 0;
+  return _sa;
 }
-const _rp = new Vector3();
-/** One raycast toward completing the seat heights; returns false when there is nothing left to do. */
-function refineOne(list: Perch[], busy: Perch[]): boolean {
-  for (const group of [busy, list]) {
-    for (const p of group) {
-      if (!p.owner) continue;
-      const h = hOf(p);
-      if (h.left <= 0) continue;
-      const i = h.done.indexOf(0);
-      perchPoint(p, -p.half + i * STEP, _rp);
-      h.hs[i] = topAt(_rp.x, _rp.z, p.y);
-      h.done[i] = 1; h.left--;
-      return true;
-    }
-  }
-  return false;
-}
+const heightAt = (p: Perch, u: number) => seatOn(p, u).y;
+const heightsDone = (p: Perch) => { for (const st of hOf(p)) if (!seat(st).ok) return false; return true; };
 
-/** Perches the default camera can see (nothing between them and the south-east sky). */
+/** Perches the default camera can see (no collider between them and the south-east sky). */
 const seen = new WeakMap<Perch, boolean>();
-const TO_CAM = [0.6, 0.62, 0.6] as const;
-function seeOne(list: Perch[]): boolean {
+/** Check a few perches a frame; returns false when every perch has been checked. */
+function seeSome(list: Perch[], n: number): boolean {
+  let more = false;
   for (const p of list) {
-    if (seen.has(p) || (p.owner && hOf(p).left > 0)) continue;
+    if (seen.has(p)) continue;
+    if (!heightsDone(p)) { more = true; continue; }
+    if (n-- <= 0) return true;
     const y = p.owner ? heightAt(p, 0) : groundY(p.x, p.z);
-    seen.set(p, !blockedToward(p.x, y + 0.35, p.z, TO_CAM[0], TO_CAM[1], TO_CAM[2]));
-    return true;
+    seen.set(p, openToward(p.x, y + 0.35, p.z, TO_CAM[0], TO_CAM[1], TO_CAM[2]));
   }
-  return false;
+  return more;
 }
 
 /** Ground perches under a tree canopy (the langurs prefer to sit where they can be seen). */
-const covered = new WeakMap<Perch, boolean>();
-function coverOne(list: Perch[]): boolean {
-  for (const p of list) {
-    if (p.owner || covered.has(p)) continue;
-    const g = groundY(p.x, p.z);
-    covered.set(p, topAt(p.x, p.z, g + 1.2, 7) > g + 1.4);
-    return true;
-  }
-  return false;
+const canopy = new WeakMap<Perch, TopQuery>();
+function covered(p: Perch): boolean {
+  if (p.owner) return false;
+  let q = canopy.get(p);
+  if (!q) { const g = groundY(p.x, p.z); q = requestTop(p.x, p.z, g + 1.2, 7); canopy.set(p, q); }
+  return q.done && q.y > groundY(p.x, p.z) + 1.4;
 }
+/** Queue every height / canopy query for a perch list (one batch after a rescan). */
+function queueAll(list: Perch[]) { for (const p of list) { hOf(p); covered(p); } }
 
+const _seat = new Vector3();
 /** Put a monkey at offset u on a perch, at the real surface height there (parapet top, roof slope, ground). */
 function seatAt(perch: Perch, u: number, out: Vector3) {
   perchPoint(perch, u, out);
-  out.y = perch.owner ? heightAt(perch, u) : floorAt(out.x, out.z, groundY(out.x, out.z) + 0.3, 0.15, 0.3);
+  if (!perch.owner) { out.y = floorAt(out.x, out.z, groundY(out.x, out.z) + 0.3, 0.15, 0.3); return out; }
+  const st = seatOn(perch, u);
+  out.x += Math.sin(perch.yaw) * st.off; out.z += Math.cos(perch.yaw) * st.off; out.y = st.y;
   return out;
 }
 
@@ -180,7 +187,7 @@ export function Monkeys() {
         kind, rig, r: rng(900 + i * 13 + (kind === 'langur' ? 50 : 0)), pos, yaw: perch.yaw + (r() - 0.5) * 0.8,
         perch, u, walkU: u, st: 'sit', t: 0, dur: 4 + r() * 8,
         look: 0, lookT: 0, lookWant: 0, scratch: 0, scratchT: 3 + r() * 8,
-        leap: null, partner: null, fleeCD: 0, bus: { pos, leaping: false }, home: 0,
+        leap: null, partner: null, fleeCD: 0, bus: { pos, leaping: false }, home: 0, dyn: null,
       };
       monkeys.push(m);
       return m;
@@ -202,22 +209,32 @@ export function Monkeys() {
       m.rig.root.position.copy(m.pos);
       m.rig.root.rotation.y = m.yaw;
     }
-    return { group, perches, monkeys, busy: monkeys.map((m) => m.perch), version: -1, huddleVersion: -2, seenDone: false, scanT: 0, scans: 0, huddle: null as Perch | null, nightWas: false };
+    return { group, perches, monkeys, version: -1, huddleVersion: -2, seenDone: false, scanT: 0, scans: 0, huddle: null as Perch | null, nightWas: false };
   }, []);
 
   const scene = useThree((s) => s.scene);
   useEffect(() => { setProbeScene(scene); }, [scene]);
 
   useEffect(() => {
+    const offs = S.monkeys.map((m) => {
+      const d = collision.addDynamic({ x: m.pos.x, z: m.pos.z, r: m.kind === 'langur' ? 0.26 : 0.2, y0: m.pos.y, y1: m.pos.y + 0.6 });
+      m.dyn = d.collider;
+      return d.remove;
+    });
+    return () => { offs.forEach((f) => f()); for (const m of S.monkeys) m.dyn = null; };
+  }, [S]);
+
+  useEffect(() => {
     animalsBus.monkeys = S.monkeys.filter((m) => m.kind === 'macaque').map((m) => m.bus);
     // test hook: window.__monkeys() → state of every monkey
-    const w = window as unknown as { __monkeys?: () => unknown; __topAt?: typeof topAt };
-    w.__topAt = topAt;
+    const w = window as unknown as { __monkeys?: () => unknown };
     w.__monkeys = () => ({
+      tops: topsStatus(),
+      hs: S.perches.macaque.slice(0, 60).map((p) => [+p.x.toFixed(1), +p.z.toFixed(1), +p.y.toFixed(2), +heightAt(p, 0).toFixed(2), +seatOn(p, 0).off.toFixed(2), p.owner?.tag, seen.get(p) ? 1 : 0]),
       perches: { macaque: S.perches.macaque.length, roofs: S.perches.macaque.filter((p) => p.owner).length, langur: S.perches.langur.length },
-      list: S.monkeys.map((m) => ({ k: m.kind[0], st: m.st, p: m.pos.toArray().map((v) => +v.toFixed(1)), roof: !!m.perch.owner, tag: m.perch.owner?.tag })),
+      list: S.monkeys.map((m) => ({ k: m.kind[0], st: m.st, p: m.pos.toArray().map((v) => +v.toFixed(2)), u: +m.u.toFixed(2), half: +m.perch.half.toFixed(2), roof: !!m.perch.owner, tag: m.perch.owner?.tag })),
     });
-    return () => { animalsBus.monkeys = []; delete w.__monkeys; delete w.__topAt; };
+    return () => { animalsBus.monkeys = []; delete w.__monkeys; };
   }, [S]);
 
   useFrame(() => {
@@ -234,6 +251,7 @@ export function Monkeys() {
       S.version = collision.version;
       S.perches.macaque = perchesFor('macaque');
       S.perches.langur = perchesFor('langur');
+      queueAll(S.perches.macaque); queueAll(S.perches.langur);
       S.scans++;
       S.seenDone = false;
       // monkeys still sitting on the pavement go up onto the roofs: unseen ones are simply moved there,
@@ -248,7 +266,7 @@ export function Monkeys() {
             const d = Math.hypot(p.x - m.pos.x, p.z - m.pos.z) + crowd * 4;
             if (d < bd) { bd = d; best = p; }
           }
-          m.perch = best; m.u = m.walkU = (m.r() - 0.5) * best.half; seatAt(best, m.u, m.pos);
+          m.perch = best; m.u = m.walkU = roomOn(S, m, best, (m.r() - 0.5) * best.half); seatAt(best, m.u, m.pos);
           m.yaw = best.yaw + (m.r() - 0.5) * 0.8;
           m.rig.root.position.copy(m.pos);
         } else {
@@ -289,26 +307,32 @@ export function Monkeys() {
       }
     }
 
-    // refine perch heights (one raycast a frame, once the town has been built)
-    if (S.scans > 0) {
-      for (let i = 0; i < S.monkeys.length; i++) S.busy[i] = S.monkeys[i].perch;
-      if (!refineOne(S.perches.macaque, S.busy) && !refineOne(S.perches.langur, S.busy) && !coverOne(S.perches.langur)) {
-        if (!seeOne(S.perches.macaque) && !S.seenDone) {
-          // every perch checked: at night, re-pick the huddle among the visible ones
-          S.seenDone = true;
-          if (night) S.huddleVersion = -3;
-        }
+    // real perch heights (batched, time-sliced), then which perches the camera can see
+    if (S.scans > 0 && !pumpTops(1.5) && !S.seenDone) {
+      if (!seeSome(S.perches.macaque, 6)) {
+        // every perch checked: at night, re-pick the huddle among the visible ones
+        S.seenDone = true;
+        if (night) S.huddleVersion = -3;
       }
     }
 
     for (const m of S.monkeys) {
       const dxz = hdist(m.pos, P);
       m.rig.root.visible = dxz < 70 || m.st === 'leap';
-      if (m.perch.owner && (m.st === 'sit' || m.st === 'groom' || m.st === 'groomed' || m.st === 'sleep' || m.st === 'land')) m.pos.y = damp(m.pos.y, heightAt(m.perch, m.u), 12, dt);
+      if (m.perch.owner && (m.st === 'sit' || m.st === 'groom' || m.st === 'groomed' || m.st === 'sleep' || m.st === 'land')) {
+        // settle onto the real seat as the height queries come in
+        seatAt(m.perch, m.u, _seat);
+        m.pos.x = damp(m.pos.x, _seat.x, 12, dt); m.pos.y = damp(m.pos.y, _seat.y, 12, dt); m.pos.z = damp(m.pos.z, _seat.z, 12, dt);
+      }
       if (dxz > 70 && m.st !== 'leap') continue;
       think(S, m, dt, dxz, night);
       pose(m, dt, dxz);
       m.bus.leaping = m.st === 'leap';
+      if (m.dyn) {
+        const park = m.st === 'leap';
+        m.dyn.x = park ? 1e6 : m.pos.x; m.dyn.z = park ? 1e6 : m.pos.z;
+        m.dyn.y0 = m.pos.y; m.dyn.y1 = m.pos.y + 0.6;
+      }
     }
   });
 
@@ -400,11 +424,11 @@ function think(S: World, m: Monkey, dt: number, dxz: number, night: boolean) {
         m.st = 'sleep'; m.t = 0; m.yaw = m.perch.yaw + (m.r() - 0.5) * 0.6;
         break;
       }
-      const roll = m.r() - (covered.get(m.perch) ? 0.25 : 0);
+      const roll = m.r() - (covered(m.perch) ? 0.25 : 0);
       if (m.home === -1 || roll < 0.18) { m.home = 0; if (startLeap(S, m, false)) break; }
       if (roll < 0.45) {
         // walk along the edge
-        m.walkU = clamp(m.u + (m.r() - 0.5) * 2.4, -m.perch.half, m.perch.half);
+        m.walkU = roomOn(S, m, m.perch, clamp(m.u + (m.r() - 0.5) * 2.4, -m.perch.half, m.perch.half));
         if (Math.abs(m.walkU - m.u) > 0.25) { m.st = 'walk'; m.t = 0; break; }
       }
       if (roll < 0.75) {
@@ -423,6 +447,20 @@ function think(S: World, m: Monkey, dt: number, dxz: number, night: boolean) {
   }
 }
 
+/** Nudge an offset along a perch so it keeps ~0.4 m from the other monkeys there (no two in one spot). */
+function roomOn(S: World, m: Monkey, p: Perch, u: number): number {
+  for (let k = 0; k < 4; k++) {
+    let clash: Monkey | null = null;
+    for (const o of S.monkeys) if (o !== m && o.perch === p && Math.abs(o.u - u) < 0.4) { clash = o; break; }
+    if (!clash) return u;
+    const side = u >= clash.u ? 1 : -1;
+    u = clash.u + side * 0.42;
+    if (Math.abs(u) > p.half) u = clash.u - side * 0.42;
+    u = clamp(u, -p.half, p.half);
+  }
+  return u;
+}
+
 /** Leap to another perch (fleeing: away from the boy). Returns false if nowhere suitable. */
 function startLeap(S: World, m: Monkey, flee: boolean): boolean {
   const P = game.player.pos;
@@ -432,7 +470,7 @@ function startLeap(S: World, m: Monkey, flee: boolean): boolean {
   const _v = new Vector3();
   for (const p of list) {
     if (p === m.perch && !(m.kind === 'langur' && flee)) continue;
-    const u = (m.r() - 0.5) * p.half * 1.6;
+    const u = roomOn(S, m, p, (m.r() - 0.5) * p.half * 1.6);
     perchPoint(p, u, _v);
     const d = Math.hypot(_v.x - m.pos.x, _v.y - m.pos.y, _v.z - m.pos.z);
     if (d < 1.8 || d > maxD) continue;
@@ -441,8 +479,8 @@ function startLeap(S: World, m: Monkey, flee: boolean): boolean {
     if (crowd > 2) continue;
     const away = Math.hypot(_v.x - P.x, _v.z - P.z) + Math.max(0, _v.y - P.y) * 0.6;
     const s = flee
-      ? away * 1.5 - Math.abs(d - 5) * 0.2 + m.r() * 1.5 - (away < 4.5 ? 20 : 0) - (covered.get(p) ? 1 : 0)
-      : -Math.abs(d - 4.5) * 0.5 + m.r() * 3 + (p.owner ? 1.5 : 0) + (seen.get(p) ? 1.5 : 0) - crowd - (covered.get(p) ? 2.5 : 0);
+      ? away * 1.5 - Math.abs(d - 5) * 0.2 + m.r() * 1.5 - (away < 4.5 ? 20 : 0) - (covered(p) ? 1 : 0)
+      : -Math.abs(d - 4.5) * 0.5 + m.r() * 3 + (p.owner ? 1.5 : 0) + (seen.get(p) ? 1.5 : 0) - crowd - (covered(p) ? 2.5 : 0);
     if (s > bestS) { bestS = s; best = p; bestU = u; }
   }
   if (!best) return false;
@@ -468,7 +506,7 @@ function queueLeap(m: Monkey, perch: Perch, u: number, hop: number): boolean {
   m.leap = {
     x0: m.pos.x, y0: m.pos.y, z0: m.pos.z, x1: to.x, y1: to.y, z1: to.z,
     T: ground ? 0.32 + d * 0.06 : 0.45 + d * 0.065,
-    H: (ground ? 0.25 + d * 0.06 : 0.7 + d * 0.17) + (Math.max(m.pos.y, to.y) - (m.pos.y + to.y) / 2),
+    H: (ground ? 0.25 + d * 0.06 : 0.55 + d * 0.12) + (Math.max(m.pos.y, to.y) - (m.pos.y + to.y) / 2),
     perch, u, then,
   };
   m.st = 'leap'; m.t = 0; m.partner = null;

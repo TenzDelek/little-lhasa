@@ -17,12 +17,13 @@ type Opts = { volume?: number; pan?: number };
 
 const MASTER = 0.85;
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
-const pick = <T,>(xs: readonly T[]) => xs[(Math.random() * xs.length) | 0];
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 
 interface Engine {
   ctx: AudioContext;
   master: GainNode;
+  /** Dev only: post-compressor meter for level checks (window.__audio.levels()). */
+  meter: AnalyserNode | null;
   sfx: GainNode;
   amb: GainNode;
   verb: ConvolverNode;
@@ -128,12 +129,14 @@ function build(): Engine {
   const master = ctx.createGain();
   master.gain.value = useGame.getState().muted ? 0 : MASTER;
   master.connect(comp).connect(ctx.destination);
+  let meter: AnalyserNode | null = null;
+  if (import.meta.env.DEV) { meter = ctx.createAnalyser(); meter.fftSize = 2048; comp.connect(meter); }
   const sfx = ctx.createGain(); sfx.connect(master);
   const amb = ctx.createGain(); amb.gain.value = 0; amb.connect(master);
   const verb = ctx.createConvolver(); verb.buffer = impulse(ctx);
   const wet = ctx.createGain(); wet.gain.value = 0.55;
   verb.connect(wet).connect(master);
-  return { ctx, master, sfx, amb, verb, noise: whiteNoise(ctx, 2), brown: brownNoise(ctx, 6), shaper: makeShaper() };
+  return { ctx, master, meter, sfx, amb, verb, noise: whiteNoise(ctx, 2), brown: brownNoise(ctx, 6), shaper: makeShaper() };
 }
 
 /** An output strip for one sound: level → optional pan → bus, plus a reverb send. Auto-disconnects. */
@@ -246,7 +249,7 @@ function jump(vol: number, pan: number) {
 
 function land(vol: number, pan: number) {
   const t = E!.ctx.currentTime + 0.004;
-  const out = strip(vol * 0.9, 0.4, pan, 0.05);
+  const out = strip(vol * 0.55, 0.4, pan, 0.05);
   const th = envGain(t, 0.003, 0.24, 0.16, out);
   const o = osc('sine', 120, t, t + 0.22, th);
   o.frequency.exponentialRampToValueAtTime(44, t + 0.14);
@@ -274,7 +277,7 @@ function bell(vol: number, pan: number) {
   if (n === lastBell) n = (n + 1 + ((Math.random() * 3) | 0)) % BELL_NOTES.length;
   lastBell = n;
   const f0 = BELL_NOTES[n] * rnd(0.996, 1.004);
-  const out = strip(vol * 0.2, 5, pan, 0.42);
+  const out = strip(vol * 0.17, 5, pan, 0.42);
   // gentle high-shelf roll-off keeps it brass, not glass
   const tone = filter('lowpass', 9000, 0.5, out);
   for (const [r, a, d, beat] of BELL_PARTIALS) {
@@ -309,7 +312,7 @@ function stickSlip(dur: number) {
 function wheel(vol: number, pan: number) {
   const { ctx } = E!;
   const t = ctx.currentTime + 0.005;
-  const out = strip(vol, 1.6, pan, 0.18);
+  const out = strip(vol * 1.8, 1.6, pan, 0.18);
   // whoosh + low rumble of the copper drum turning, wobbling at the rotation rate
   const wob = ctx.createGain(); wob.gain.value = 1; wob.connect(out);
   const lfo = osc('sine', rnd(3, 4.2), t, t + 1.3, ctx.createGain());
@@ -331,7 +334,7 @@ function wheel(vol: number, pan: number) {
 
 function coin(vol: number, pan: number) {
   const t0 = E!.ctx.currentTime + 0.005;
-  const out = strip(vol * 0.11, 1, pan, 0.12);
+  const out = strip(vol * 0.09, 1, pan, 0.12);
   const hits = [[0, 1], [0.075, 0.55], [0.13, 0.25]] as const;
   for (const [dt, a] of hits) {
     const t = t0 + dt, k = rnd(0.97, 1.03);
@@ -344,7 +347,7 @@ function coin(vol: number, pan: number) {
 
 function deny(vol: number, pan: number) {
   const t0 = E!.ctx.currentTime + 0.005;
-  const out = strip(vol * 0.07, 0.6, pan, 0.03);
+  const out = strip(vol * 0.045, 0.6, pan, 0.03);
   const lp = filter('lowpass', 750, 0.8, out);
   for (const dt of [0, 0.14]) {
     const t = t0 + dt;
@@ -366,7 +369,7 @@ function blip(vol: number, pan: number, base = 540) {
 function lamp(vol: number, pan: number) {
   const { ctx } = E!;
   const t = ctx.currentTime + 0.005;
-  const out = strip(vol * 0.9, 1, pan, 0.16);
+  const out = strip(vol * 0.65, 1, pan, 0.16);
   // the flame catching: a breathy low-pass sweep
   const lp = filter('lowpass', 180, 1.1, ahr(t, 0.06, 0.13, 0.05, 0.45, out));
   lp.frequency.exponentialRampToValueAtTime(1500, t + 0.12);
@@ -434,7 +437,7 @@ function moo(vol: number, pan: number) {
   const { ctx } = E!;
   const t = ctx.currentTime + 0.01;
   const dur = rnd(1.1, 1.6);
-  const out = strip(vol * 0.13, dur + 1, pan, 0.16);
+  const out = strip(vol * 0.09, dur + 1, pan, 0.16);
   const env = ahr(t, 0.18, 1, dur - 0.5, 0.32, out);
   const lp = filter('lowpass', 260, 4, env);
   lp.frequency.linearRampToValueAtTime(900, t + 0.42);
@@ -571,9 +574,10 @@ interface Amb {
   day: GainNode; night: GainNode; chant: GainNode;
   wind: { lp: BiquadFilterNode; g: GainNode }[];
   traffic: GainNode;
-  next: { bird: number; honk: number; crow: number; dog: number; gust: number };
+  next: { bird: number; honk: number; crow: number; dog: number; gust: number; owl: number };
   chantV: ChantVoice | null;
   chantFar: number;
+  wasNight: boolean | null;
 }
 
 interface ChantVoice {
@@ -622,7 +626,11 @@ function buildAmbient(): Amb {
   cr.start();
 
   const t = ctx.currentTime;
-  return { day, night, chant, wind, traffic, next: { bird: t + 2, honk: t + 9, crow: t + 14, dog: t + 6, gust: t }, chantV: null, chantFar: 0 };
+  return {
+    day, night, chant, wind, traffic,
+    next: { bird: t + 2, honk: t + 9, crow: t + 14, dog: t + 6, gust: t, owl: t + 12 },
+    chantV: null, chantFar: 0, wasNight: null,
+  };
 }
 
 function bird(day: AudioNode) {
@@ -656,6 +664,24 @@ function bird(day: AudioNode) {
       const t = t0 + dt;
       osc('sine', f * k, t, t + 0.3, ahr(t, 0.03, 0.8, 0.14, 0.08, out));
     }
+  }
+}
+
+/** A collared scops owl somewhere in the deodars: one soft, low "whoop", now and then answered. */
+function owl(night: AudioNode) {
+  const { ctx } = E!;
+  const t0 = ctx.currentTime + 0.02;
+  const out = strip(rnd(0.05, 0.08), 3, rnd(-0.85, 0.85), 0.55, night);
+  const lp = filter('lowpass', 900, 0.7, out);
+  const calls = Math.random() < 0.35 ? 2 : 1;
+  for (let i = 0; i < calls; i++) {
+    const t = t0 + i * rnd(1.1, 1.5);
+    const f = rnd(370, 410);
+    const g = ahr(t, 0.07, 1, 0.12, 0.2, lp);
+    const o = osc('sine', f * 0.94, t, t + 0.5, g);
+    o.frequency.linearRampToValueAtTime(f, t + 0.08);
+    o.frequency.linearRampToValueAtTime(f * 0.9, t + 0.4);
+    osc('sine', f * 2.01, t, t + 0.45, ahr(t, 0.08, 0.06, 0.1, 0.18, lp));
   }
 }
 
@@ -695,6 +721,15 @@ function startChant(a: Amb): ChantVoice {
   return { srcs, freqs, form, syl, out, next: t + 0.2, left: 10 };
 }
 
+/** The big temple drum (nga), struck softly at the start of a phrase; it rides the chant bus. */
+function drum(t: number, dest: AudioNode, amp = 1) {
+  const g = envGain(t, 0.006, 0.28 * amp, 0.9, dest);
+  const o = osc('sine', 78, t, t + 1.1, g);
+  o.frequency.exponentialRampToValueAtTime(52, t + 0.35);
+  const skin = filter('lowpass', 420, 0.8, envGain(t, 0.002, 0.12 * amp, 0.12, dest));
+  noise(t, 0.14, skin);
+}
+
 function stopChant(c: ChantVoice) {
   const t = E!.ctx.currentTime;
   for (const o of c.srcs) { try { o.stop(t + 0.1); } catch { /* already stopped */ } }
@@ -714,6 +749,10 @@ function chantSchedule(c: ChantVoice) {
       // the next phrase may start a step lower or back home
       const k = Math.random() < 0.3 ? 0.944 : 1;
       c.freqs.forEach((f, i) => f.setTargetAtTime(CHANT_F0 * [1, 1.004, 0.9965, 2.003][i] * k, s + br - 0.1, 0.12));
+      if (Math.random() < 0.55) {
+        drum(s + br - 0.05, c.out);
+        if (Math.random() < 0.4) drum(s + br + 0.42, c.out, 0.6);
+      }
       c.next = s + br;
       continue;
     }
@@ -759,7 +798,14 @@ function tickAmbient() {
     A.next.gust = t + rnd(1.5, 4.5);
   }
 
-  if (s.started || true) {
+  // day ↔ night: restart the schedules so the new bed doesn't open with a backlog
+  if (A.wasNight !== night) {
+    if (night) { A.next.dog = t + rnd(3, 8); A.next.owl = t + rnd(9, 20); }
+    else { A.next.bird = t + rnd(0.5, 2); A.next.crow = t + rnd(10, 25); }
+    A.wasNight = night;
+  }
+  // nothing new is scheduled while muted (the beds keep running silently)
+  if (!s.muted) {
     if (!night && t >= A.next.bird) { bird(A.day); A.next.bird = t + (Math.random() < 0.3 ? rnd(0.4, 1.2) : rnd(2, 7)); }
     if (t >= A.next.honk) {
       if (!night || Math.random() < 0.3) PLAY.honk(clamp(1.1 - dSq / 120, 0.35, 1), rnd(-0.8, 0.8));
@@ -768,16 +814,16 @@ function tickAmbient() {
     if (!night && t >= A.next.crow) { crow(1, rnd(-0.9, 0.9), true); A.next.crow = t + rnd(18, 45); }
     if (night && t >= A.next.dog) {
       bark(1, rnd(-0.95, 0.95), true);
-      if (Math.random() < 0.35) setTimeout(() => { if (E && useGame.getState().night && !useGame.getState().muted) bark(0.8, rnd(-0.95, 0.95), true); }, rnd(900, 2200));
+      if (Math.random() < 0.35) setTimeout(() => { if (A && E && useGame.getState().night && !useGame.getState().muted) bark(0.8, rnd(-0.95, 0.95), true); }, rnd(900, 2200));
       A.next.dog = t + rnd(8, 26);
     }
-    if (night && t < A.next.dog - 30) A.next.dog = t + rnd(3, 8);
+    if (night && t >= A.next.owl) { owl(A.night); A.next.owl = t + rnd(16, 40); }
   }
 
   // temple chant fades in within 35 m of the main hall
   const dT = Math.hypot(p.x - TEMPLE.x, p.z - TEMPLE.z);
   const k = clamp((CHANT_R - dT) / (CHANT_R - 8), 0, 1);
-  const level = 0.16 * k * k * (3 - 2 * k);
+  const level = 0.19 * k * k * (3 - 2 * k);
   if (level > 0.001 && !A.chantV) A.chantV = startChant(A);
   A.chant.gain.setTargetAtTime(level, t, 0.9);
   if (A.chantV) {
@@ -820,6 +866,23 @@ const unsubMute = useGame.subscribe((s, prev) => {
 });
 
 for (const g of GESTURES) window.addEventListener(g, unlock, { capture: true, passive: true });
+
+// dev: window.__audio.levels() → { peak, rms } of the last ~40 ms after the compressor (for level checks)
+if (import.meta.env.DEV) {
+  const buf = new Float32Array(2048);
+  Object.assign(window, {
+    __audio: {
+      get state() { return E?.ctx.state ?? 'none'; },
+      levels() {
+        if (!E?.meter) return null;
+        E.meter.getFloatTimeDomainData(buf);
+        let pk = 0, sq = 0;
+        for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i]); if (v > pk) pk = v; sq += buf[i] * buf[i]; }
+        return { peak: pk, rms: Math.sqrt(sq / buf.length) };
+      },
+    },
+  });
+}
 document.addEventListener('visibilitychange', onVisibility);
 const timer = window.setInterval(tickAmbient, 200);
 setSfxImpl(play);

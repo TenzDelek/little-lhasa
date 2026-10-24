@@ -108,9 +108,21 @@ export function teaShop(c: Ctx) {
     rod(c.props, [0.4, frontH + 0.1, 0.36], [0.4, frontH + 0.4, 0.36], 0.05, 0x5a3e28);
   });
 
-  // colliders: shack body (back part), counter, drum
-  c.colliders.push(localBox(f, 0, -d / 2 - 0.25, w, d - 0.5, y - 0.5, y + backH, 'teashop'));
-  c.colliders.push(localBox(f, -0.25, -0.25, w - 0.5, 0.5, y - 0.5, y + 1.0, 'counter'));
+  // half-door closing the gap between the counter and the tin wall (the keeper's way in)
+  inFrame(c, f, y, () => {
+    const P = c.props;
+    P.slab(hw - 0.58, 0.16, -0.3, hw - 0.1, 0.94, -0.25, 0x7a5a3a);
+    P.box(0.5, 0.06, 0.03, [hw - 0.34, 0.55, -0.235], 0x5a3e28, { rot: [0, 0, 0.9] });
+    P.box(0.05, 0.05, 0.05, [hw - 0.52, 0.6, -0.22], 0x3a3634);
+  });
+
+  // colliders: back wall + shelves, both side walls and a full-width counter; the keeper's floor behind the
+  // counter (TEA_VENDOR) stays free
+  const inner = d - 0.5 - 0.4; // between the counter's back (z = −0.5) and the shelves (z = −d + 0.4)
+  c.colliders.push(localBox(f, 0, -d + 0.2, w, 0.4, y - 0.5, y + backH, 'teashop'));
+  c.colliders.push(localBox(f, -hw + 0.05, -0.5 - inner / 2, 0.14, inner, y - 0.5, y + backH, 'teashop'));
+  c.colliders.push(localBox(f, hw - 0.05, -0.5 - inner / 2, 0.14, inner, y - 0.5, y + backH, 'teashop'));
+  c.colliders.push(localBox(f, 0, -0.25, w, 0.5, y - 0.5, y + 1.0, 'counter'));
   c.colliders.push(localBox(f, -hw - 0.4, -d + 0.4, 0.6, 0.6, y - 0.3, y + 0.9, 'drum'));
   footprint(c, f, -0.2, -d / 2, w + 1.2, d + 0.3);
   const [lx, lz] = toWorld(f, -0.2, -0.85);
@@ -225,9 +237,21 @@ function puppyNook(c: Ctx) {
     const mx = (fa.x + fb.x) / 2, mz = (fa.z + fb.z) / 2;
     c.colliders.push({ x: mx, z: mz, w: Math.hypot(fb.x - fa.x, fb.z - fa.z), d: 0.45, rot: fa.yaw + Math.PI / 2, y0: groundY(mx, mz) - 0.3, y1: groundY(mx, mz) + 0.6, tag: 'wall' });
   }
-  // a broken red plastic chair and a few weeds by the road end of the passage
+  // a rusty tin sheet leaning on the back wall beside the box, and a steel bowl someone keeps filling
   {
-    const ch = at(1.55, -1.6);
+    const lo = at(0.62, -back + 0.05), hi = at(0.62, -back - 0.8);
+    rod(P, [lo.x, lo.y + 0.02, lo.z], [hi.x, hi.y + 1.12, hi.z], 0.62, PAL.roofRust, undefined, 0.03);
+    rod(P, [lo.x, lo.y + 0.05, lo.z], [hi.x, hi.y + 1.15, hi.z], 0.1, 0x8a4a2a, undefined, 0.032);
+    const m = at(0.62, -back - 0.45);
+    c.colliders.push({ x: m.x, z: m.z, w: 0.66, d: 0.8, rot: f.yaw, y0: m.y - 0.2, y1: m.y + 0.6, tag: 'tin' });
+    const bw = at(0.42, -back + 0.35);
+    P.cyl(0.11, 0.08, 0.06, [bw.x, bw.y, bw.z], ALU, 8);
+    P.cyl(0.085, 0.085, 0.01, [bw.x, bw.y + 0.045, bw.z], 0x8fb0c0, 8);
+  }
+  // a broken red plastic chair and a few weeds, back along the house wall (the passage stays ≥ 1.4 m wide even
+  // with the roadside bench at the mouth of the gap)
+  {
+    const ch = at(1.75, -2.9);
     P.group([ch.x, ch.y, ch.z], f.yaw + 2.2, () => {
       P.box(0.42, 0.04, 0.4, [0, 0.42, 0], PAL.roofRed);
       P.box(0.42, 0.4, 0.04, [0, 0.64, -0.2], PAL.roofRed, { rot: [-0.15, 0, 0] });

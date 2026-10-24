@@ -4,9 +4,10 @@
 // the road. North side (−1) is uphill, south side (+1) looks down the Kangra valley.
 import { PAL } from '../../core/palette';
 import type { BuildingSpec } from '../../kit/building';
+import { makeSign } from '../../kit/sign';
 import type { Ctx } from './ctx';
 import { row, type RowItem } from './rows';
-import { BHAGSU } from './util';
+import { BHAGSU, rod, toWorld } from './util';
 import { TEA, NOOK } from './spots';
 import { teaShop } from './teashop';
 import { overlook, stairLane } from './specials';
@@ -25,12 +26,26 @@ export function bhagsuRoad(c: Ctx) {
   ]);
   // stepped lane up between the houses, then a house high on its stone plinth
   stairLane(c, R, -1, 19.15, 1.4);
-  row(c, R, -1, 20.25, [
+  const upper = row(c, R, -1, 20.25, [
     { w: 6.2, spec: house(311, 2, { roof: 'tin', tibetan: true, flags: true, clutter: 0.9 }), opts: { extraLift: 0.85 } },
     { w: 6.4, spec: { ground: 'cafe', floors: 2, seed: 321, roof: 'tin', tibetan: true, sign: { text: 'YOGA', bod: 'རྣལ་འབྱོར།', bg: 0xd9772e, fg: PAL.wallWhite }, awning: 0x6a2630 }, opts: { extraLift: 0.51, depth: 7.5 }, gapBefore: 0.35 },
     { w: 4.8, spec: house(331, 3, { roof: 'flat', tanks: 2, clothes: true }), opts: { extraLift: 0.17 } },
     { w: 4.2, spec: { ground: 'shop', floors: 2, seed: 341, shop: 'grocery', sign: { text: 'STORE', bod: 'ཚོང་ཁང', bg: PAL.roofGreen, fg: PAL.wallWhite } } },
   ]);
+  // a blade sign projecting from the yoga centre's first floor, readable from along the road
+  const yoga = upper.find((p) => p.w === 6.4);
+  if (yoga) {
+    const f = { x: yoga.x, z: yoga.z, yaw: yoga.yaw };
+    const ex = -yoga.w / 2 + 0.25, zF = yoga.d / 2, sy = yoga.y + 3.75;
+    const sg = makeSign({ text: 'MEDITATION', bod: 'སྒོམ།', bg: 0xd9772e, fg: PAL.wallWhite, h: 0.62 });
+    const [sx, sz] = toWorld(f, ex, zF + 0.95);
+    sg.position.set(sx, sy, sz);
+    sg.rotation.y = f.yaw + Math.PI / 2;
+    c.meshes.push(sg);
+    const a = toWorld(f, ex, zF), b = toWorld(f, ex, zF + 1.75);
+    rod(c.props, [a[0], sy + 0.36, a[1]], [b[0], sy + 0.36, b[1]], 0.04, 0x2a2a2e);
+    rod(c.props, [a[0], sy - 0.15, a[1]], [b[0], sy + 0.36, b[1]], 0.03, 0x2a2a2e);
+  }
   // chai dhaba + customers' corner (from TEA.s − w/2 − 2.5) and the nook gap after it
   teaShop(c);
   row(c, R, -1, NOOK.s1, [

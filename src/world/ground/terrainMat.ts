@@ -24,7 +24,7 @@ const CROSSINGS = ROADS.filter((r) => r.kind === 'road').map((r) => {
   let s = 0;
   while (s < 20 && plazaQuery(roadFrame(r, s).x, roadFrame(r, s).z).edge < 1.5) s += 0.25;
   const f = roadFrame(r, s + 1.5);
-  return { x: f.x, z: f.z, tx: f.tx, tz: f.tz };
+  return { x: f.x, z: f.z, tx: f.tx, tz: f.tz, hw: r.width / 2 };
 });
 
 // ---- palette (sRGB) ---------------------------------------------------------------------------------
@@ -182,7 +182,8 @@ export function terrainMaterial() {
       const d = xz.sub(vec2(c.x, c.z));
       const u = d.x.mul(c.tx).add(d.y.mul(c.tz));
       const v = d.x.mul(-c.tz).add(d.y.mul(c.tx));
-      const zebra = step(abs(u), 1.15).mul(step(fract(v.div(0.75).add(0.25)), 0.5)).mul(step(aE, -0.3));
+      // limited across the road too, so the band never spills onto another road it happens to meet
+      const zebra = step(abs(u), 1.15).mul(step(abs(v), c.hw + 0.2)).mul(step(fract(v.div(0.75).add(0.25)), 0.5)).mul(step(aE, -0.3));
       a.assign(mix(a, mix(K.paint, K.paintW, step(0.5, h2)), zebra.mul(th(n4.mul(0.6).add(n3.mul(0.4)), 0.3, 0.3))));
     }
     col.assign(mix(col, a, step(aE, 0)));

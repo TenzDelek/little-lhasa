@@ -15,7 +15,7 @@ import { G } from '../../game/store';
 import { animateQuad, type QPose, type QuadRig } from './quad';
 import { buildDog, DOG_COATS } from './species';
 import { Mover } from './mover';
-import { animalsBus, freeSpot, hdist, isNight, sfxAt } from './nav';
+import { animalsBus, freeSpot, hdist, isNight, seenSpot, sfxAt } from './nav';
 
 type Kind = 'sleeper' | 'wanderer' | 'friendly';
 interface XZ { x: number; z: number }
@@ -28,10 +28,10 @@ function onRoad(id: string, s: number, lat: number): XZ & { yaw: number } {
 }
 
 function dogDefs(): DogDef[] {
-  const momo = onRoad('temple-road', 14, -3.3);
-  const gate = onRoad('temple-road', -3.5, 3.4);
-  const jog = onRoad('jogiwara-road', 24, -3.2);
-  const bhagsu = [6, 16, 27, 38, 49].map((s, i) => onRoad('bhagsu-road', s, i % 2 ? -2.3 : 2.4));
+  const momo = onRoad('temple-road', 15, 3.3);
+  const gate = onRoad('temple-road', -7.5, 3.4);
+  const jog = onRoad('jogiwara-road', 24, 3.3);
+  const bhagsu = [13, 20, 29, 38, 49].map((s, i) => onRoad('bhagsu-road', s, i % 2 ? -2.3 : 2.4));
   const temple = [
     onRoad('temple-road', 18, 2.4), onRoad('temple-road', 29, 2.5), onRoad('temple-road', 38.5, 1.8),
     onRoad('market-lane', 18, 0.6), onRoad('market-lane', 9, -0.6), onRoad('temple-road', 33, -2.2),
@@ -103,11 +103,14 @@ export function Dogs() {
       }));
     }
     const settle = () => {
+      for (const d of dogs) if (d.dyn) { d.dyn.x = 1e6; d.dyn.z = 1e6; } // not blocked by ourselves
       for (const d of dogs) {
-        const f = freeSpot(d.def.home.x, d.def.home.z, 0.3, 0.5, 2.5);
+        // a free spot near home that the camera can see (not tucked behind a house)
+        const f = seenSpot(d.def.home.x, d.def.home.z, 0.3, 0.5, 3.5) ?? freeSpot(d.def.home.x, d.def.home.z, 0.3, 0.5, 2.5);
         if (!f) continue;
         d.home.x = f.x; d.home.z = f.z;
-        if (d.st === 'sleep' || d.st === 'rest') d.m.teleport(f.x, f.y, f.z);
+        const unseen = game.time < 5 || hdist(d.m.pos, game.player.pos) > 14;
+        if ((d.st === 'sleep' || d.st === 'rest') && unseen) d.m.teleport(f.x, f.y, f.z);
       }
     };
     settle();
@@ -214,12 +217,17 @@ function think(d: Dog, dt: number, dist: number, night: boolean) {
         else bark(d, P);
       }
     }
-    // monkeys
+    // monkeys: always at one leaping about nearby or down on the street; now and then at one up on a roof
     if (stOf(d) !== 'bark' && d.barkCD <= 0) {
       for (const mk of animalsBus.monkeys) {
         const md = hdist(mk.pos, d.m.pos);
         const awake = d.st !== 'sleep';
-        if ((awake && md < 8 && d.r() < 0.35) || (mk.leaping && md < 7)) { bark(d, mk.pos); break; }
+        const low = mk.pos.y - d.m.pos.y < 2.2;
+        if ((mk.leaping && md < 7) || (awake && low && md < 6) || (awake && md < 8 && d.r() < 0.05)) {
+          bark(d, mk.pos);
+          d.barkCD = 14 + d.r() * 12;
+          break;
+        }
       }
     }
     // night: everyone to bed

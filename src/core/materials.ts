@@ -8,7 +8,7 @@
 import { Color, DoubleSide, FrontSide, type Side } from 'three';
 import { MeshLambertNodeMaterial, type Node, type UniformNode } from 'three/webgpu';
 import {
-  attribute, float, floor, positionGeometry, positionWorld, screenCoordinate, select, smoothstep, vec3, vec4,
+  attribute, cameraPosition, float, floor, max, positionGeometry, positionWorld, screenCoordinate, select, smoothstep, vec3, vec4,
   uniform,
 } from 'three/tsl';
 import { U } from './uniforms';
@@ -58,7 +58,9 @@ function occlusionKeep(): Node<'bool'> {
   const k = smoothstep(U.occludeRadius, U.occludeRadius.mul(0.55), perp)
     .mul(smoothstep(0.35, 1.3, along))
     .mul(U.occlude);
-  return bayer4(screenCoordinate.xy).greaterThanEqual(k.mul(0.9));
+  // anything right in front of the lens (chase camera pushed into a canopy or an eave) dissolves too
+  const near = smoothstep(2.2, 0.9, positionWorld.distance(cameraPosition));
+  return bayer4(screenCoordinate.xy).greaterThanEqual(max(k, near).mul(0.9));
 }
 
 export function mat(opts: MatOpts = {}): MeshLambertNodeMaterial {

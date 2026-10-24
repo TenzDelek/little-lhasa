@@ -14,7 +14,7 @@ import { PrayerFlags } from '../../kit/flags';
 import { buildProps, type PropsBuild } from './build';
 
 declare global {
-  interface Window { __props?: PropsBuild['stats'] }
+  interface Window { __props?: PropsBuild['stats']; __propsMarks?: PropsBuild['marks'] }
 }
 
 export function Props() {
@@ -29,6 +29,7 @@ export function Props() {
       if ((frames >= 4 && still >= 2) || frames > 90) {
         const b = buildProps();
         window.__props = b.stats;
+        window.__propsMarks = b.marks;
         setB(b);
         return;
       }

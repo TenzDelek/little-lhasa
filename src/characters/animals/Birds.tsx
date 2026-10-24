@@ -12,7 +12,7 @@ import { Parts } from '../../core/geom';
 import { clamp, damp, dampAngle, lerp, rng, smooth, TAU, type Rng } from '../../core/math';
 import { groundY, roadQuery } from '../../world/terrain';
 import { animalMaterial } from './quad';
-import { blocked, hdist, isNight, roofPerches, sfxAt } from './nav';
+import { blocked, edgeSeat, hdist, isNight, pumpTops, resolveSeat, roofPerches, sfxAt, type EdgeSeat } from './nav';
 
 // ---- geometry -----------------------------------------------------------------------------------------------
 function pigeonBody(): BufferGeometry {
@@ -122,7 +122,7 @@ function groundSpot(r: Rng, avoid: Vector3 | null): [number, number] {
 
 // ---- crows -----------------------------------------------------------------------------------------------------
 const CROW_N = 6;
-interface CPerch { x: number; y: number; z: number; yaw: number }
+interface CPerch { x: number; y: number; z: number; yaw: number; seat?: EdgeSeat; nx?: number; nz?: number }
 type CSt = 'perch' | 'fly' | 'sleep';
 interface Crow {
   r: Rng; x: number; y: number; z: number; yaw: number; pitch: number;
@@ -140,8 +140,12 @@ function crowPerches(): CPerch[] {
   }
   const roofs = roofPerches((c) => c.tag === 'building' && Math.hypot(c.x, c.z - 15) < 55 && roadQuery(c.x, c.z).edge < 14, 0.12);
   for (const p of roofs) {
-    out.push({ x: p.x + p.ex * p.half * 0.6, y: p.y, z: p.z + p.ez * p.half * 0.6, yaw: p.yaw });
-    out.push({ x: p.x - p.ex * p.half * 0.5, y: p.y, z: p.z - p.ez * p.half * 0.5, yaw: p.yaw + 0.4 });
+    // two spots along the edge, seated on the real parapet / roof edge once the height queries are answered
+    const nx = Math.sin(p.yaw), nz = Math.cos(p.yaw);
+    for (const [k, dy] of [[0.6, 0], [-0.5, 0.4]] as const) {
+      const x = p.x + p.ex * p.half * k, z = p.z + p.ez * p.half * k;
+      out.push({ x, y: p.y, z, yaw: p.yaw + dy, seat: edgeSeat(x, z, nx, nz, p.y), nx, nz });
+    }
   }
   if (out.length < CROW_N + 2) {
     // nothing built yet: hop about the edges of the square
@@ -190,7 +194,7 @@ export function Birds() {
         x0: 0, y0: 0, z0: 0, x1: 0, y1: 0, z1: 0, T: 1, H: 1, next: null, flap: 0,
       };
     });
-    return { pb, pw, cb, cw, pigeons, crows, perches, scanT: 0, scans: 0, version: -1, scareCD: 0 };
+    return { pb, pw, cb, cw, pigeons, crows, perches, scanT: 0, scans: 0, version: -1, scareCD: 0, unseated: true };
   }, []);
 
   useEffect(() => () => { S.pb.dispose(); S.pw.dispose(); S.cb.dispose(); S.cw.dispose(); }, [S]);
@@ -213,7 +217,9 @@ export function Birds() {
         const d = Math.hypot(b.x - P.x, b.z - P.z);
         if ((d < 1.3 && p.speed > 0.4) || (d < 3.2 && p.speed > 3.2) || (d < 0.7)) { scare = true; break; }
       }
-      if (scare || (night && S.pigeons.some((b) => b.st === 'ground'))) {
+      let grounded = false;
+      if (night) for (const b of S.pigeons) if (b.st === 'ground') { grounded = true; break; }
+      if (scare || grounded) {
         for (const b of S.pigeons) {
           if (b.st !== 'ground') continue;
           const d = Math.hypot(b.x - P.x, b.z - P.z);
@@ -247,8 +253,21 @@ export function Birds() {
       if (collision.version !== S.version) {
         S.version = collision.version;
         S.perches = crowPerches();
+        S.unseated = true;
         // crows on fallback ground spots move to the new perches
         for (const c of S.crows) if (c.st === 'perch') c.dur = Math.min(c.dur, c.t + 1 + c.r() * 4);
+      }
+    }
+    // roof perches settle onto the real parapet / edge as their height queries are answered
+    if (S.unseated) {
+      pumpTops(1.5);
+      S.unseated = false;
+      for (const q of S.perches) {
+        if (!q.seat) continue;
+        if (!resolveSeat(q.seat).ok) { S.unseated = true; continue; }
+        const ox = q.x, oy = q.y, oz = q.z;
+        q.x += q.nx! * q.seat.off; q.z += q.nz! * q.seat.off; q.y = q.seat.y; q.seat = undefined;
+        for (const c of S.crows) if (c.perch === q && c.st !== 'fly') { c.x += q.x - ox; c.y += q.y - oy; c.z += q.z - oz; }
       }
     }
     for (let i = 0; i < CROW_N; i++) {
@@ -373,28 +392,37 @@ function pigeon(b: Pigeon, dt: number, night: boolean, P: Vector3) {
   }
 }
 
-function crow(S: { perches: CPerch[]; crows: Crow[] }, c: Crow, dt: number, night: boolean, P: Vector3) {
+type CrowWorld = { perches: CPerch[]; crows: Crow[] };
+
+function flyTo(c: Crow, target: CPerch) {
+  c.st = 'fly'; c.t = 0; c.next = target;
+  c.x0 = c.x; c.y0 = c.y; c.z0 = c.z; c.x1 = target.x; c.y1 = target.y; c.z1 = target.z;
+  const d = Math.hypot(c.x1 - c.x0, c.z1 - c.z0);
+  c.T = 1.2 + d * 0.09; c.H = 1.2 + d * 0.12 + Math.max(0, c.y1 - c.y0) * 0.3;
+  c.yaw = Math.atan2(c.x1 - c.x0, c.z1 - c.z0);
+  sfxAt('crow', c.x, c.z, 0.75);
+}
+
+/** Next perch: a short flight away, around the boy (so the crows stay where the life is), away from him if scared. */
+function choosePerch(S: CrowWorld, c: Crow, P: Vector3, scared: boolean, far: boolean) {
+  let best: CPerch | null = null, bs = -Infinity;
+  for (const p of S.perches) {
+    const d = Math.hypot(p.x - c.x, p.z - c.z);
+    if (!far && (d < 3 || d > 30)) continue;
+    let taken = false;
+    for (const o of S.crows) if (o !== c && (o.perch === p || o.next === p)) { taken = true; break; }
+    if (taken) continue;
+    const dp = Math.hypot(p.x - P.x, p.z - P.z);
+    if (dp < 4) continue;
+    const sc = (scared ? dp * 0.25 : -Math.abs(dp - 13) * 0.25) - (far ? 0 : Math.abs(d - 10) * 0.1) + c.r() * 3;
+    if (sc > bs) { bs = sc; best = p; }
+  }
+  return best;
+}
+
+function crow(S: CrowWorld, c: Crow, dt: number, night: boolean, P: Vector3) {
   c.t += dt;
   const d3 = Math.hypot(c.x - P.x, c.y - P.y, c.z - P.z);
-  const flyTo = (target: CPerch) => {
-    c.st = 'fly'; c.t = 0; c.next = target;
-    c.x0 = c.x; c.y0 = c.y; c.z0 = c.z; c.x1 = target.x; c.y1 = target.y; c.z1 = target.z;
-    const d = Math.hypot(c.x1 - c.x0, c.z1 - c.z0);
-    c.T = 1.2 + d * 0.09; c.H = 1.2 + d * 0.12 + Math.max(0, c.y1 - c.y0) * 0.3;
-    c.yaw = Math.atan2(c.x1 - c.x0, c.z1 - c.z0);
-    sfxAt('crow', c.x, c.z, 0.75);
-  };
-  const choose = () => {
-    let best: CPerch | null = null, bs = -Infinity;
-    for (const p of S.perches) {
-      const d = Math.hypot(p.x - c.x, p.z - c.z);
-      if (d < 3 || d > 30) continue;
-      if (S.crows.some((o) => o !== c && (o.perch === p || o.next === p))) continue;
-      const s = Math.hypot(p.x - P.x, p.z - P.z) * 0.3 - Math.abs(d - 12) * 0.2 + c.r() * 3;
-      if (s > bs) { bs = s; best = p; }
-    }
-    return best;
-  };
   switch (c.st) {
     case 'perch': {
       c.hop = c.hopT < 0 ? Math.max(0, Math.sin((-c.hopT / 0.28) * Math.PI) * 0.12) : 0;
@@ -412,8 +440,14 @@ function crow(S: { perches: CPerch[]; crows: Crow[] }, c: Crow, dt: number, nigh
       c.pitch = c.caw > 0 ? -0.35 * Math.sin((c.caw / 0.5) * Math.PI * 3) ** 2 : 0;
       if (night) { c.st = 'sleep'; c.t = 0; break; }
       if (d3 < 3.3 || c.t > c.dur) {
-        const t = choose();
-        if (t) flyTo(t); else { c.t = 0; c.dur = 10; }
+        const far = Math.hypot(c.x - P.x, c.z - P.z) > 45;
+        const t = choosePerch(S, c, P, d3 < 3.3, far);
+        if (t && far) {
+          // a long way from the boy: come in from the sky to a roof near him (the take-off is out of view)
+          c.x = t.x - 16; c.y = t.y + 14; c.z = t.z - 12;
+          flyTo(c, t);
+        } else if (t) flyTo(c, t);
+        else { c.t = 0; c.dur = 10; }
       }
       break;
     }

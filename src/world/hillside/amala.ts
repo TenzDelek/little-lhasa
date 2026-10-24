@@ -29,16 +29,17 @@ export function amalaHouse(c: Ctx) {
   const B = c.bld, P = c.props;
 
   /** Tibetan window on a wall facing +z (wall plane at z = 0 in the current group). */
-  const windowAt = (x: number, wy: number, ww: number, wh: number, lit: boolean, box: boolean) => {
+  const windowAt = (x: number, wy: number, ww: number, wh: number, lit: boolean, box: boolean, rich = true) => {
     // black trapezoid surround, wider at the bottom
     B.taper(ww + 0.42, 0.04, ww + 0.2, 0.04, wh + 0.36, [x, wy - 0.2, 0.01], BLACK);
-    // painted lintel: rows of little coloured blocks, then a maroon board
+    // painted lintel: rows of little coloured blocks (front only), then a maroon board
     B.slab(x - ww / 2 - 0.2, wy + wh + 0.18, 0.0, x + ww / 2 + 0.2, wy + wh + 0.3, 0.12, MAROON);
-    const n = Math.max(4, Math.round((ww + 0.3) / 0.13));
+    const n = rich ? Math.max(4, Math.round((ww + 0.3) / 0.13)) : 0;
     for (let i = 0; i < n; i++) {
       const bx = x - (ww + 0.3) / 2 + ((ww + 0.3) * (i + 0.5)) / n;
       B.box(0.08, 0.07, 0.06, [bx, wy + wh + 0.13, 0.08], [PAL.templeGreen, PAL.templeRed, PAL.templeBlue, PAL.templeYellow][i % 4]);
     }
+    if (!rich) B.slab(x - ww / 2 - 0.12, wy + wh + 0.1, 0.0, x + ww / 2 + 0.12, wy + wh + 0.17, 0.08, PAL.templeGreen);
     // blue frame, glass, mullions
     B.slab(x - ww / 2, wy, 0.0, x + ww / 2, wy + wh, 0.07, BLUE);
     B.slab(x - ww / 2 + 0.07, wy + 0.07, 0.03, x + ww / 2 - 0.07, wy + wh - 0.07, 0.075, lit ? 0x3a4a56 : PAL.glass,
@@ -92,8 +93,39 @@ export function amalaHouse(c: Ctx) {
     windowAt(-2.3, FH + 0.85, 1.0, 1.2, true, true);
     windowAt(0.1, FH + 0.85, 1.0, 1.2, false, true);
     windowAt(2.45, FH + 0.85, 1.0, 1.2, true, true);
-    // "OM MANI PADME HUM" plaque? keep it simple: a small painted dharma wheel above the door
+    // a small painted dharma wheel above the door
     B.cyl(0.16, 0.16, 0.03, [doorX, 2.62, 0.02], PAL.gold, 8, { rot: [Math.PI / 2, 0, 0] });
+
+    // ---- side and back walls: the same blue Tibetan windows (simpler lintels), a kitchen door at the back ----
+    // local +x is the south wall, −x the north wall, −z the back (east, down the slope)
+    B.group([hw, 0, 0], Math.PI / 2, () => {
+      windowAt(d * 0.5, 1.0, 0.9, 1.1, true, false, false);
+      windowAt(d * 0.28, FH + 0.85, 0.9, 1.15, false, true, false);
+      windowAt(d * 0.72, FH + 0.85, 0.9, 1.15, true, false, false);
+    });
+    B.group([-hw, 0, 0], -Math.PI / 2, () => {
+      windowAt(-d * 0.62, 1.0, 0.8, 1.05, false, false, false);
+      windowAt(-d * 0.3, FH + 0.85, 0.9, 1.15, true, true, false);
+      windowAt(-d * 0.7, FH + 0.85, 0.9, 1.15, false, false, false);
+    });
+    B.group([0, 0, -d], Math.PI, () => {
+      windowAt(-1.9, 1.0, 0.9, 1.05, false, false, false);
+      windowAt(1.6, FH + 0.85, 1.0, 1.15, true, false, false);
+      windowAt(-0.6, FH + 0.85, 1.0, 1.15, false, true, false);
+      windowAt(-2.6, FH + 0.85, 0.8, 1.15, false, false, false);
+      // kitchen door with a cotton curtain, a stove pipe up the wall, firewood stacked beside it
+      B.slab(0.55, 0, 0.0, 1.45, 2.05, 0.07, BLUE);
+      B.slab(0.62, 0, 0.02, 1.38, 1.95, 0.08, PAL.templeMaroon);
+      B.slab(0.64, 0.7, 0.08, 1.36, 1.9, 0.1, 0xe8e2d6);
+      for (let i = 0; i < 5; i++) B.box(0.14, 0.12, 0.02, [0.72 + i * 0.14, 1.83, 0.11], LUNGTA[i]);
+      B.slab(0.4, 2.12, 0.0, 1.6, 2.22, 0.14, MAROON);
+      B.cyl(0.07, 0.07, H + 1.0 - 2.0, [2.55, 2.0, 0.24], 0x4a4a4c, 6);
+      B.box(0.24, 0.12, 0.3, [2.55, 2.0, 0.12], 0x3a3634);
+      B.cyl(0.11, 0.09, 0.2, [2.55, H + 1.0, 0.24], 0x3a3634, 6);
+      for (let j = 0; j < 3; j++) for (let k = 0; k < 4 - j; k++) {
+        B.cyl(0.07, 0.07, 0.75, [-0.35 + k * 0.15 + j * 0.075, 0.07 + j * 0.13, 0.35], j % 2 ? 0x8b6a44 : 0x7a5a3a, 5, { rot: [0, 0, Math.PI / 2] });
+      }
+    });
 
     // ---- porch: raised floor, two blue posts, a green tin roof, rug, shoes ------------------------------------
     const px0 = doorX - 1.8, px1 = doorX + 1.8;

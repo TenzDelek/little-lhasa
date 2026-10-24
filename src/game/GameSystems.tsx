@@ -28,17 +28,20 @@ export function GameSystems() {
     game.time += dt;
     U.time.value = game.time;
 
-    if (input.take('camera')) { s.setCamera(s.camera === 'iso' ? 'chase' : 'iso'); sfx('toggle'); }
-    if (input.take('night')) { s.toggleNight(); sfx('toggle'); }
-    if (input.take('mute')) s.toggleMute();
-    if (input.take('quests')) s.setPanel(s.panel === 'quests' ? null : 'quests');
-    if (input.take('help')) s.setPanel(s.panel === 'help' ? null : 'help');
+    // hotkeys: re-read the store for each one so two keys in the same frame see each other's effect
+    if (input.take('camera')) { G().setCamera(G().camera === 'iso' ? 'chase' : 'iso'); sfx('toggle'); }
+    if (input.take('night')) { G().toggleNight(); sfx('toggle'); }
+    if (input.take('mute')) G().toggleMute();
+    if (input.take('quests')) G().setPanel(G().panel === 'quests' ? null : 'quests');
+    if (input.take('help')) G().setPanel(G().panel === 'help' ? null : 'help');
     if (input.take('pause')) {
-      if (s.dialogue) s.closeDialogue();
-      else if (s.panel) s.setPanel(null);
-      else if (s.started) s.setPaused(!s.paused);
+      const t = G();
+      if (t.dialogue) t.closeDialogue();
+      else if (t.panel) t.setPanel(null);
+      else if (t.started) t.setPaused(!t.paused);
     }
-    input.locked = !!s.dialogue || !s.started || s.paused;
+    const now = G();
+    input.locked = !!now.dialogue || !now.started || now.paused;
 
     // screenshot harness: report ready once the scene has rendered for a while
     if (debug.shot && !window.__shotReady) {

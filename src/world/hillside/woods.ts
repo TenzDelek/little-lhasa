@@ -1,14 +1,20 @@
 // Forest placement for the whole town: deodar, chir pine, oak and rhododendron trees with bushes, ferns and
 // rocks underneath. Seeded jittered-grid candidates + Poisson-style spacing, filtered by the town plan:
 //   - only inside the diorama (worldMask > 0.6), never on roads / plazas
-//   - asphalt roads: more than 9 m from the edge (behind the building rows); lanes too (Market Lane rows);
-//     the kora path: more than 2.5 m from the edge (the Lingkhor is a forest walk)
-//   - outside the main-square box, outside the temple court (+4 m) and everything inside the kora loop
+//   - asphalt roads: more than 9 m from the edge (behind the building rows); lanes ≥ 2 m (other modules'
+//     buildings along Market Lane are cleared by the collider sweep in Woodland.tsx); the kora path ≥ 2.5 m
+//     (the Lingkhor is a forest walk)
+//   - outside the main-square box, outside the temple enclosure (+4 m) and everything inside the kora loop
 //   - clear of hillside footprints (buildings, tea shop, viewpoint…)
+//   - no trees (shrubs only) in the ±35° view cone north of the Dhauladhar viewpoint
 // Density is highest along the kora and on steep ground, patchy elsewhere (low-frequency noise clearings).
+// Trees on the kora's outer side are marked `koraOuter`: once the temple module has registered its kora
+// features (flag poles, chortens, mani piles…), Woodland.tsx keeps them ≥ 4.5 m clear and out from under
+// the lungta fans that run down the hillside.
 import { ROADS } from '../layout';
 import { groundY, worldMask } from '../terrain';
 import { fbm2, hash2, rng, smooth } from '../../core/math';
+import { ENCLOSURE } from '../temple/site';
 import { COURT, KORA, VIEWPOINT, kindDist, obbDist, rectDist, roadDist, type OBB } from './util';
 import type { PlantedTree } from './ctx';
 import type { TreeKind } from './trees';
@@ -24,9 +30,13 @@ export interface TreeInstance {
   phase: number;
   /** Planted deliberately by a builder: never culled by the collider sweep. */
   fixed?: boolean;
+  /** Close to the kora on its outer side: kept clear of the temple's kora features at runtime. */
+  koraOuter?: boolean;
 }
 
-const TREE_KINDS: TreeKind[] = ['deodar', 'deodarMid', 'sapling', 'pine', 'oak', 'rhodo'];
+const TREE_KINDS: TreeKind[] = ['deodar', 'deodarMid', 'sapling', 'pine', 'oak', 'rhodo', 'pineB', 'oakB', 'rhodoB'];
+/** Second model of a species (picked per position, so the plan itself stays the same). */
+const VARIANT_B: Partial<Record<TreeKind, TreeKind>> = { pine: 'pineB', oak: 'oakB', rhodo: 'rhodoB' };
 export const isTree = (k: TreeKind) => TREE_KINDS.includes(k);
 
 /** Min spacing between tree trunks by kind (m, scale 1). */
@@ -45,16 +55,39 @@ function insideKora(x: number, z: number) {
 
 const ASPHALT = ROADS.filter((r) => r.kind === 'road');
 
+/** Distance from (x, z) to the temple enclosure polygon (0 inside). */
+function enclosureDist(x: number, z: number): number {
+  let inside = false, best = Infinity;
+  const P = ENCLOSURE;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    const [ax, az] = P[j], [bx, bz] = P[i];
+    if ((bz > z) !== (az > z) && x < ((ax - bx) * (z - bz)) / (az - bz) + bx) inside = !inside;
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
+    best = Math.min(best, Math.hypot(x - ax - dx * t, z - az - dz * t));
+  }
+  return inside ? 0 : best;
+}
+
+/** The view north from the Dhauladhar viewpoint: apex a little behind the plaza centre, ±35° about −z. */
+export const VIEW_CONE = { x: 30, z: -81.5, tan: Math.tan((35 * Math.PI) / 180) };
+/** Inside the viewpoint's view cone (no trees there, so the chase camera sees the snow range)? */
+export function inViewCone(x: number, z: number, pad = 0): boolean {
+  const dz = VIEW_CONE.z - z;
+  if (dz <= 0) return false;
+  return Math.abs(x - VIEW_CONE.x) - pad < dz * VIEW_CONE.tan;
+}
+
 /** Can something stand at (x, z)? `roadGap` = clearance from asphalt edges. */
 function allowed(x: number, z: number, foot: OBB[], footPad: number, roadGap = 9): boolean {
   if (worldMask(x, z) < 0.6) return false;
   if (x > -24 && x < 25 && z > -21 && z < 21) return false;
   const [cx0, cz0, cx1, cz1] = COURT.rect;
   if (x > cx0 - 4 && x < cx1 + 4 && z > cz0 - 4 && z < cz1 + 4) return false;
-  if (insideKora(x, z)) return false;
+  if (insideKora(x, z) || enclosureDist(x, z) < 4) return false;
   if (rectDist(VIEWPOINT.rect, x, z) < 1.2) return false;
   for (const r of ASPHALT) if (roadDist(r, x, z).edge < roadGap) return false;
-  if (kindDist('lane', x, z) < 9) return false;
+  if (kindDist('lane', x, z) < Math.min(roadGap, 2)) return false;
   if (roadDist(KORA, x, z).edge < 2.5) return false;
   for (const f of foot) if (obbDist(f, x, z) < footPad) return false;
   return true;
@@ -73,8 +106,6 @@ function density(x: number, z: number): number {
   d *= 0.35 + smooth(0.32, 0.62, n) * 0.9;
   // thinner toward the rim so the diorama edge stays readable
   d *= smooth(0.6, 0.95, worldMask(x, z));
-  // keep the view north of the Dhauladhar viewpoint open
-  if (x > 16 && x < 44 && z < -89 && z > -106) d *= 0.25;
   return Math.min(1, d);
 }
 
@@ -138,7 +169,7 @@ function tintFor(kind: TreeKind, x: number, z: number, r: () => number): [number
     const blue = n < 0.4 ? 0.06 : 0;
     return [b * (1 - blue), b, b * (1 + blue * 1.5)];
   }
-  if (kind === 'pine') return [b * (1 + (n - 0.5) * 0.12), b, b * 0.94];
+  if (kind === 'pine' || kind === 'pineB') return [b * (1 + (n - 0.5) * 0.12), b, b * 0.94];
   if (kind === 'rock' || kind === 'rockFlat') { const g = 0.88 + r() * 0.2; return [g, g, g * (0.97 + r() * 0.06)]; }
   return [b * (1 + (n - 0.5) * 0.1), b, b];
 }
@@ -153,13 +184,17 @@ export function planForest(foot: OBB[], planted: PlantedTree[], clearings: OBB[]
   const r = rng(90210);
   const yOf = (x: number, z: number) => groundY(x, z) - 0.05;
 
-  const push = (kind: TreeKind, x: number, z: number, scale: number, yaw = r() * Math.PI * 2, fixed = false) => {
-    items.push({ kind, x, y: yOf(x, z), z, yaw, scale, tint: tintFor(kind, x, z, r), phase: r() * 6.283, fixed });
+  const push = (k0: TreeKind, x: number, z: number, scale: number, yaw = r() * Math.PI * 2, fixed = false) => {
+    const kB = VARIANT_B[k0];
+    const kind = kB && hash2(x * 0.71 + 3.1, z * 1.37 - 0.4) < 0.45 ? kB : k0;
+    const outer = isTree(kind) && !fixed && !insideKora(x, z) && roadDist(KORA, x, z).edge < 12;
+    items.push({ kind, x, y: yOf(x, z), z, yaw, scale, tint: tintFor(kind, x, z, r), phase: r() * 6.283, fixed, koraOuter: outer || undefined });
   };
 
   // 0. fixed trees requested by the builders (shrine tree, gaps between houses…)
   for (const t of planted) {
     const kind: TreeKind = t.kind === 'bush' ? 'bush' : t.kind;
+    if (isTree(kind) && inViewCone(t.x, t.z)) continue; // the view north stays open
     const s = t.scale ?? 1;
     push(kind, t.x, t.z, s, t.yaw ?? r() * Math.PI * 2, true);
     if (isTree(kind)) trunks.add(t.x, t.z, (SPACING[kind] ?? 3) * s * 0.5);
@@ -182,6 +217,7 @@ export function planForest(foot: OBB[], planted: PlantedTree[], clearings: OBB[]
     const dens = density(x, z);
     if (acc > dens * 0.85) continue;
     const kind = species(x, z, u, v);
+    if (inViewCone(x, z, SPACING[kind] * 0.6)) continue;
     const scale = kind === 'sapling' ? 0.8 + r() * 0.5 : 0.82 + r() * 0.36;
     const rad = SPACING[kind] * scale * 0.5;
     // denser along the kora: spacing factor < 1

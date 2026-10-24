@@ -166,7 +166,7 @@ export const useGame = create<Store>()(persist((set, get) => ({
   name: SAVE_KEY,
   storage: createJSONStorage(() => (noSave ? sessionStorage : localStorage)),
   // only progress is saved — never UI state
-  partialize: (s) => ({ rupees: s.rupees, inventory: s.inventory, merit: s.merit, quests: s.quests, flags: s.flags, night: s.night }),
+  partialize: (s) => ({ rupees: s.rupees, inventory: s.inventory, merit: s.merit, quests: s.quests, flags: s.flags, night: s.night, muted: s.muted }),
   skipHydration: noSave,
 }));
 

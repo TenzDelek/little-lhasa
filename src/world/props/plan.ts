@@ -6,11 +6,12 @@
 // plazas and outside the square / temple / market-lane areas, the air above 4.5 m over those roads, and
 // parking bays on the road surface along the kerb.
 import { PLAZAS, ROADS, roadById, roadFrame, roadLength, type Road } from '../layout';
-import { groundY } from '../terrain';
+import { groundY, plazaQuery } from '../terrain';
 import { collision, type BoxCollider, type Collider } from '../../core/collision';
 import type { BoxInit, CircleInit } from '../../core/collision';
 import { clamp } from '../../core/math';
 import type { V3 } from '../../core/geom';
+import { sampleFields, type FieldSample } from '../ground/fields';
 
 export const STREETS = ROADS.filter((r) => r.kind === 'road');
 export const TEMPLE_RD = roadById('temple-road');
@@ -96,6 +97,66 @@ export function stripOK(p: EdgePt, off: number, pad = 0.3): boolean {
   return true;
 }
 
+// ---- kerb and open drains (painted by the ground module) ----------------------------------------------------
+/** The kerb runs from the road edge to +0.18 m; its top is 0.10 m above groundY. */
+export const KERB_OFF = 0.09, KERB_TOP = 0.1;
+/** Open drains run +0.20..+0.56 m from the asphalt edge where sampleFields().drain > 0.5. */
+export const DRAIN_OUT = 0.6;
+const _fs = {} as FieldSample;
+
+/** Is there an open drain beside this road at arc length s on this side? */
+export function hasDrain(road: Road, s: number, side: 1 | -1): boolean {
+  const f = roadFrame(road, s);
+  const d = road.width / 2 + 0.38;
+  return sampleFields(f.x + f.nx * side * d, f.z + f.nz * side * d, _fs).drain > 0.5;
+}
+
+/** Does (x, z) fall into the open drain beside `road` (with `pad` m of margin)? */
+export function inDrain(road: Road, x: number, z: number, pad = 0.04): boolean {
+  const e = roadDist(road, x, z).edge;
+  if (e < 0.2 - pad || e > 0.56 + pad) return false;
+  return sampleFields(x, z, _fs).drain > 0.5;
+}
+
+/**
+ * Where a post (lamp, pole, flag pole, signpost) stands on the edge strip: on the kerb where a drain runs
+ * behind it (y = kerb top, `kerb` true), otherwise 0.3 m out on the verge (y = ground).
+ */
+export function postPt(road: Road, s: number, side: 1 | -1): EdgePt & { kerb: boolean; off: number } {
+  if (hasDrain(road, s, side) || hasDrain(road, s - 0.3, side) || hasDrain(road, s + 0.3, side)) {
+    const p = edgePt(road, s, side, KERB_OFF);
+    return { ...p, y: groundY(p.x, p.z) + KERB_TOP, kerb: true, off: KERB_OFF };
+  }
+  return { ...edgePt(road, s, side, 0.3), kerb: false, off: 0.3 };
+}
+
+/**
+ * Centre of a ground prop of depth `depth` (across the road) beside the road: just behind the kerb, or
+ * behind the drain where there is one (never in it).
+ */
+export function propPt(road: Road, s: number, side: 1 | -1, depth: number, extra = 0): EdgePt & { off: number } {
+  const drain = hasDrain(road, s, side) || hasDrain(road, s - 0.5, side) || hasDrain(road, s + 0.5, side);
+  const off = (drain ? DRAIN_OUT : 0.2) + depth / 2 + extra;
+  return { ...edgePt(road, s, side, off), off };
+}
+
+// ---- zebra crossings (painted by the ground where each road leaves the square) ---------------------------
+/** Same construction as the ground painter: centre and unit tangent of each crossing. */
+const CROSSINGS = ROADS.filter((r) => r.kind === 'road').map((r) => {
+  let s = 0;
+  while (s < 20 && plazaQuery(roadFrame(r, s).x, roadFrame(r, s).z).edge < 1.5) s += 0.25;
+  const f = roadFrame(r, s + 1.5);
+  return { x: f.x, z: f.z, tx: f.tx, tz: f.tz };
+});
+/**
+ * Is (x, z) within `pad` of a painted zebra band? (The ground paints each crossing as a band ±1.15 m along its
+ * road and unbounded across it, on any asphalt — so the Dharamkot Road crossing also shows up on Bhagsu Road.)
+ */
+export function onZebra(x: number, z: number, pad = 0.6): boolean {
+  for (const c of CROSSINGS) if (Math.abs((x - c.x) * c.tx + (z - c.z) * c.tz) < 1.15 + pad) return true;
+  return false;
+}
+
 /** Arc-length range [s0, s1] of a road whose centre is outside the square / temple / plaza areas. */
 export function freeRange(road: Road): [number, number] {
   const L = roadLength(road);
@@ -154,7 +215,7 @@ export class Obstacles {
   /** True if a circle (x, z, r) spanning [y0, y1] touches any foreign collider or anything placed here. */
   blocked(x: number, z: number, r: number, y0: number, y1: number): boolean {
     for (const c of this.near(x, z, r + 0.5)) {
-      if (c.y1 <= y0 || c.y0 >= y1) continue;
+      if (c.y1 <= y0 + 1e-3 || c.y0 >= y1) continue;
       if (colliderDist(c, x, z) < r) return true;
     }
     for (const m of this.mine) {
@@ -162,6 +223,19 @@ export class Obstacles {
       if (Math.hypot(m.x - x, m.z - z) < r + m.r) return true;
     }
     return false;
+  }
+
+  /**
+   * Floor height at (x, z): the ground, or the top of a low standable solid (plinth, step, kerb slab) under
+   * the circle, when it is at most `step` above the ground.
+   */
+  floorAt(x: number, z: number, r: number, ground: number, step = 0.45): number {
+    let y = ground;
+    for (const c of this.near(x, z, r + 0.5)) {
+      if (c.y1 <= y || c.y1 > ground + step || c.y0 > ground + 0.05) continue;
+      if (colliderDist(c, x, z) < r * 0.5) y = c.y1;
+    }
+    return y;
   }
 
   /** Distance from (x, z) to the nearest tall solid (building / big wall) footprint, ≤ maxD (else Infinity). */

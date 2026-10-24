@@ -1,10 +1,11 @@
 // Cows on the road verges of Jogiwara Road and Bhagsu Road: humped Indian cattle, white, brown and grey.
 // They stand or lie chewing the cud, flick their tails and ears, slowly turn their heads to watch Tenzin,
-// and moo now and then when he is near. Solid (a static box collider each). At night they lie down.
+// and moo now and then when he is near. Solid: three dynamic circles along the body (block Tenzin and the NPCs,
+// never stood on). At night they lie down.
 import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Group } from 'three';
-import { collision, type BoxCollider } from '../../core/collision';
+import { collision, type CircleCollider } from '../../core/collision';
 import { game } from '../../core/game';
 import { damp, rng, type Rng } from '../../core/math';
 import { roadById, roadFrame } from '../../world/layout';
@@ -13,12 +14,13 @@ import { animateQuad, type QuadRig } from './quad';
 import { buildCow, COW_COATS } from './species';
 import { blocked, hdist, isNight, sfxAt } from './nav';
 
+// Spots picked where the default camera can see them (not tucked behind a house) and nothing is built.
 interface CowDef { coat: keyof typeof COW_COATS; road: string; s: number; lat: number; turn: number; lying: boolean }
 
 const DEFS: CowDef[] = [
   { coat: 'white', road: 'jogiwara-road', s: 35, lat: 2.1, turn: Math.PI - 0.45, lying: false },
-  { coat: 'brown', road: 'bhagsu-road', s: 26, lat: 2.35, turn: 0.15, lying: true },
-  { coat: 'grey', road: 'jogiwara-road', s: 51.5, lat: -2.25, turn: -0.1, lying: true },
+  { coat: 'brown', road: 'bhagsu-road', s: 8.5, lat: 2.3, turn: Math.PI + 0.15, lying: true },
+  { coat: 'grey', road: 'jogiwara-road', s: 39, lat: -2.3, turn: -0.12, lying: true },
 ];
 
 interface Cow {
@@ -26,7 +28,18 @@ interface Cow {
   lying: boolean; t: number; next: number;
   look: number; pitch: number; chew: number; chewT: number; swish: number; swishT: number;
   ear: number; earT: number; mooCD: number; mouth: number; near: boolean;
-  col: BoxCollider | null;
+  cols: CircleCollider[];
+}
+
+/** Lay the three body circles along the cow (rump, barrel, chest + head); lower when she lies down. */
+function fit(c: Cow) {
+  const sx = Math.sin(c.yaw), sz = Math.cos(c.yaw);
+  const top = c.y + (c.lying ? 0.95 : 1.5);
+  for (let k = 0; k < c.cols.length; k++) {
+    const o = (k - 1) * 0.66 + 0.12;
+    const col = c.cols[k];
+    col.x = c.x + sx * o; col.z = c.z + sz * o; col.y0 = c.y; col.y1 = top;
+  }
 }
 
 export function Cows() {
@@ -45,7 +58,7 @@ export function Cows() {
         rig, r, x, z, y: groundY(x, z), yaw: f.yaw + d.turn, roadX: f.x, roadZ: f.z,
         lying: d.lying, t: 0, next: 50 + r() * 70,
         look: 0, pitch: 0, chew: 1, chewT: 6 + r() * 8, swish: 0, swishT: 2 + r() * 5,
-        ear: 0, earT: 1 + r() * 4, mooCD: 6 + r() * 10, mouth: 0, near: false, col: null,
+        ear: 0, earT: 1 + r() * 4, mooCD: 6 + r() * 10, mouth: 0, near: false, cols: [],
       };
     });
     // settle the lying ones in their pose from the first frame
@@ -54,29 +67,31 @@ export function Cows() {
   }, []);
 
   useEffect(() => {
-    const offs: ((() => void) | null)[] = cows.map(() => null);
-    const addCol = (c: Cow, i: number) => {
-      offs[i]?.();
-      const b: BoxCollider = { kind: 'box', x: c.x + Math.sin(c.yaw) * 0.15, z: c.z + Math.cos(c.yaw) * 0.15, w: 0.62, d: 1.95, rot: c.yaw, y0: c.y, y1: c.y + 1.45, tag: 'cow' };
-      c.col = b;
-      offs[i] = collision.add(b);
-    };
+    const offs: (() => void)[] = [];
+    for (const c of cows) {
+      for (let k = 0; k < 3; k++) {
+        const d = collision.addDynamic({ x: c.x, z: c.z, r: 0.36, y0: c.y, y1: c.y + 1.5 });
+        c.cols.push(d.collider);
+        offs.push(d.remove);
+      }
+      fit(c);
+    }
     // keep clear of whatever was built on the verge: shuffle toward the road centre
     const place = () => {
-      cows.forEach((c, i) => {
-        offs[i]?.(); offs[i] = null;
+      for (const c of cows) for (const col of c.cols) { col.x = 1e6; col.z = 1e6; } // not blocked by ourselves
+      for (const c of cows) {
         for (let k = 0; k < 8 && blocked(c.x, c.y, c.z, 0.4, 1.2); k++) {
           const dx = c.roadX - c.x, dz = c.roadZ - c.z, L = Math.hypot(dx, dz) || 1;
           c.x += (dx / L) * 0.25; c.z += (dz / L) * 0.25; c.y = groundY(c.x, c.z);
         }
-        addCol(c, i);
-      });
+        fit(c);
+        c.rig.root.position.set(c.x, c.y, c.z);
+      }
     };
-    cows.forEach(addCol);
     const t1 = setTimeout(place, 2600), t2 = setTimeout(place, 9000);
     const w = window as unknown as { __cows?: () => unknown };
     w.__cows = () => cows.map((c) => ({ p: [+c.x.toFixed(1), +c.y.toFixed(1), +c.z.toFixed(1)], lying: c.lying }));
-    return () => { offs.forEach((f) => f?.()); clearTimeout(t1); clearTimeout(t2); for (const c of cows) c.col = null; };
+    return () => { offs.forEach((f) => f()); clearTimeout(t1); clearTimeout(t2); for (const c of cows) c.cols.length = 0; delete w.__cows; };
   }, [cows]);
 
   useFrame(() => {
@@ -90,8 +105,8 @@ export function Cows() {
       if (dist > 65) continue;
       c.t += dt;
       // posture: lie down / get up now and then; always lying at night
-      if (night && !c.lying) { c.lying = true; c.t = 0; }
-      else if (!night && c.t > c.next) { c.lying = !c.lying; c.t = 0; c.next = 60 + c.r() * 90; }
+      if (night && !c.lying) { c.lying = true; c.t = 0; fit(c); }
+      else if (!night && c.t > c.next) { c.lying = !c.lying; c.t = 0; c.next = 60 + c.r() * 90; fit(c); }
       // chewing the cud with pauses
       c.chewT -= dt;
       if (c.chewT <= 0) { c.chew = c.chew > 0.5 ? 0 : 1; c.chewT = c.chew ? 8 + c.r() * 12 : 2 + c.r() * 3; }
