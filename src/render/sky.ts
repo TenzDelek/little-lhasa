@@ -12,9 +12,12 @@ const camWorld = uniform(new Matrix4());
 const moonDir = new Vector3(-0.5, 0.55, -0.65).normalize();
 
 // sRGB colours (the post pass works in sRGB)
+/** Horizon colours (sRGB hex) — the ground's distance haze matches these. */
+export const DAY_HORIZON_HEX = 0xe6eef2, NIGHT_HORIZON_HEX = 0x1d2742;
+
 const c = (hex: number) => vec3(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
-const DAY_ZENITH = c(0x7fa8d6), DAY_HORIZON = c(0xe6eef2), DAY_GROUND = c(0xc9cfc8);
-const NIGHT_ZENITH = c(0x0a0e1c), NIGHT_HORIZON = c(0x1d2742), NIGHT_GROUND = c(0x10141f);
+const DAY_ZENITH = c(0x7fa8d6), DAY_HORIZON = c(DAY_HORIZON_HEX), DAY_GROUND = c(0xc9cfc8);
+const NIGHT_ZENITH = c(0x0a0e1c), NIGHT_HORIZON = c(NIGHT_HORIZON_HEX), NIGHT_GROUND = c(0x10141f);
 
 export const sky = {
   invProj,

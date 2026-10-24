@@ -7,7 +7,7 @@
 //   node scripts/shot.mjs --spot spawn --colliders --out shots/col.png
 //
 // Flags: --spot NAME | --x N --z N, --yaw RAD, --cam iso|chase, --az 0..3, --zoom 0..4, --night, --colliders,
-//        --kit (kit showroom), --w 1280 --h 800, --url http://localhost:5179, --out PATH (default shots/shot.png)
+//        --kit (kit showroom), --q "k=v&k2=v2" (extra page params), --w 1280 --h 800, --url http://localhost:5179, --out PATH (default shots/shot.png)
 // Prints console errors / warnings from the page so you can catch shader or runtime problems.
 import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
@@ -28,6 +28,8 @@ for (const k of ['spot', 'x', 'z', 'yaw', 'cam', 'az', 'zoom']) if (opt[k] !== u
 if (opt.night) q.set('night', '1');
 if (opt.colliders) q.set('colliders', '1');
 if (opt.kit) q.set('kit', '1');
+// --q "a=1&b=2" passes extra query parameters through to the page
+if (opt.q) for (const [k, v] of new URLSearchParams(opt.q)) q.set(k, v);
 const out = opt.out ?? 'shots/shot.png';
 const w = Number(opt.w ?? 1280), h = Number(opt.h ?? 800);
 

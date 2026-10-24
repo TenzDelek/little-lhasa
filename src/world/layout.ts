@@ -85,14 +85,15 @@ export const SPOTS = {
   // Main Square
   maniLhakhang: { x: -7, z: -4, ry: 0 },           // prayer-wheel pavilion (big mani wheel inside, small wheels round it)
   chorten: { x: 7, z: -6, ry: 0 },                 // small white stupa on the square's north-east
-  taxiStand: { x: 9, z: 5, ry: -Math.PI / 2 },     // a few taxis / Maruti vans parked on the square's east side
-  busShelter: { x: -11, z: 6, ry: Math.PI / 2 },
+  taxiStand: { x: 6, z: 5, ry: -Math.PI / 2 },     // in front of the taxis / Maruti vans parked on the square's east side
+  busShelter: { x: -12, z: 4, ry: Math.PI / 2 },   // in front of the HRTC bus shelter
+  maniDoor: { x: -7, z: -0.9, ry: Math.PI },       // standing on the Mani Lhakhang plinth at its door, facing the great wheel
   // Temple Road
   momoStall: { x: 8, z: 28, ry: -Math.PI / 2 },    // Tashi's momo stall, east side, counter facing the road (west)
   breadStall: { x: -1, z: 40, ry: Math.PI / 2 },   // Tibetan bread (balep) cart, west side
   bookShop: { x: 9, z: 58, ry: -Math.PI / 2 },
   // Jogiwara Road / Market Lane
-  laphingStall: { x: -13, z: 22, ry: Math.PI / 2 }, // laphing stall, east side of Jogiwara Road
+  laphingStall: { x: -13, z: 22, ry: -1.99 },      // laphing stall, east side of Jogiwara Road, facing the road
   thangkaShop: { x: -30, z: 52, ry: Math.PI / 2 },
   // Tsuglagkhang complex (courtyard y = -8)
   templeGate: { x: 9, z: 93, ry: 0 },              // gate arch where Temple Road meets the courtyard
@@ -101,6 +102,10 @@ export const SPOTS = {
   prayerWheelRow: { x: 24, z: 110, ry: -Math.PI / 2 }, // row of wheels along the east side, x = 24, z 98..122, facing west
   butterLampHouse: { x: 19, z: 99, ry: Math.PI },  // glass-fronted butter-lamp house near the gate
   debateYard: { x: 3, z: 100, ry: 0 },             // monks debate here (clapping)
+  // standing points in front of things (the spots above are object centres)
+  templeSteps: { x: 10, z: 102.6, ry: Math.PI },   // foot of the main hall's steps, facing its doors
+  lampShelf: { x: 19, z: 95.6, ry: 0 },            // in front of the butter-lamp shelf, facing it
+  wheelLane: { x: 23.3, z: 110, ry: Math.PI / 2 }, // in the prayer-wheel gallery lane, facing the wheels
   // Dharamkot Road
   amalaHouse: { x: 22, z: -42, ry: -Math.PI / 2 }, // Amala's house, door facing west onto the road
   viewpoint: { x: 30, z: -85, ry: 0 },
@@ -113,7 +118,7 @@ export const SPOTS = {
 export type SpotId = keyof typeof SPOTS;
 
 /** Bounds of the playable town (the diorama rim dissolves outside the road network). */
-export const WORLD_BOUNDS = { x0: -70, z0: -110, x1: 125, z1: 170 } as const;
+export const WORLD_BOUNDS = { x0: -70, z0: -118, x1: 125, z1: 170 } as const;
 
 // ---- Quest / event ids shared by the world modules, NPCs and the UI --------------------------------
 export const QUEST = {

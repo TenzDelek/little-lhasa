@@ -191,6 +191,8 @@ class CollisionWorld {
 
   /** Debug: every static collider. */
   list() { return [...this.all]; }
+  /** Read-only view of the moving blockers (NPCs, animals, the puppy) for steering around each other. */
+  dynamics(): ReadonlySet<CircleCollider> { return this.dynamic; }
 }
 
 const _q: Collider[] = [];

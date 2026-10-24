@@ -479,12 +479,12 @@ export function attachProp(rig: Rig, side: 'L' | 'R', kind: Held) {
     // handle along local +z (vertical when the forearm is bent forward ~90°)
     p.box(0.022, 0.022, 0.26, [0, gy, 0.1], PAL.woodTrim);
     const dp = new Parts();
-    dp.cyl(0.05, 0.05, 0.075, [0, -0.0375, 0], PAL.khorloCopper, 8, { rot: [Math.PI / 2, 0, 0] });
-    dp.box(0.104, 0.02, 0.02, [0, 0, 0], PAL.gold);
-    dp.cone(0.035, 0.05, [0, 0, 0.04], PAL.gold, 6, { rot: [Math.PI / 2, 0, 0] });
-    dp.box(0.025, 0.025, 0.025, [0.075, 0, 0], PAL.rockDark); // chain weight
+    dp.cyl(0.068, 0.068, 0.095, [0, -0.0475, 0], PAL.khorloCopper, 8, { rot: [Math.PI / 2, 0, 0] });
+    dp.box(0.14, 0.024, 0.024, [0, 0, 0], PAL.gold);
+    dp.cone(0.045, 0.06, [0, 0, 0.05], PAL.gold, 6, { rot: [Math.PI / 2, 0, 0] });
+    dp.box(0.03, 0.03, 0.03, [0.1, 0, 0], PAL.rockDark); // chain weight
     drum = dp.toMesh(charMaterial());
-    drum.position.set(0, gy, 0.26);
+    drum.position.set(0, gy, 0.28);
   } else if (kind === 'mala') {
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * TAU;

@@ -141,5 +141,6 @@ export function worldMask(x: number, z: number) {
   return 1 - smooth(RIM - 4, RIM, rimDistance(x, z));
 }
 
-/** Walkable: inside the rim (the player controller keeps the boy here). */
-export const walkable = (x: number, z: number) => rimDistance(x, z) < RIM - 4.5;
+/** Walkable: inside the rim and ≥ 6 m inside WORLD_BOUNDS (the player controller keeps the boy here). */
+export const walkable = (x: number, z: number) =>
+  x > B.x0 + 6 && x < B.x1 - 6 && z > B.z0 + 6 && z < B.z1 - 6 && rimDistance(x, z) < RIM - 4.5;
