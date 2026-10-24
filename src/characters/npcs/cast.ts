@@ -51,6 +51,8 @@ export interface NpcDef {
   greet?: number;
   /** Seconds of offset for looping actions (so pairs are not in sync). */
   phase?: number;
+  /** Talk-prompt priority (interact.ts); default: 2 for quest givers, 1 for vendors with patter, else 0. */
+  priority?: number;
 }
 
 // ---- looks ---------------------------------------------------------------------------------------------
@@ -294,7 +296,8 @@ add({ id: 'k-tashi', name: 'Little Tashi', bod: 'བཀྲ་ཤིས།', labe
 // -- standing about ---------------------------------------------------------------------------------------
 if (TEA_VENDOR) add({
   id: 'tea-kamla', name: 'Kamla Auntie', label: 'Talk to Kamla Auntie', kind: 'teaAuntie', mode: 'stand', night: 'stay',
-  at: TEA_VENDOR, idleAct: 'give', greet: 0.8, phase: 0.7,
+  // priority 0, like the counter's "Buy chai": at the counter you buy, step toward her to talk
+  at: TEA_VENDOR, idleAct: 'give', greet: 0.8, phase: 0.7, priority: 0,
   spec: indian(r, true, { outfit: 'kurta', robe: 0x7a4a6a, trim: 0xd8a040, pants: 0x3a3634, height: 1.52, build: 1.12, hair: 0x2a2220, hairStyle: 'bun' }),
 });
 const C = SQUARE.chai;

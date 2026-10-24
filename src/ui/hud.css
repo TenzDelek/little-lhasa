@@ -385,6 +385,8 @@
   background: radial-gradient(closest-side, color-mix(in srgb, #f6c24e 34%, transparent), transparent);
 }
 .loading.is-done .lamp-fire { animation: none; opacity: 1; }
+/* the 3D view failed (store.renderError): the lamps stay cold, the note says why */
+.loading.is-failed .lamp-fire { animation: none; opacity: 0; }
 .loading-note {
   position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 14px;
   width: max-content; max-width: min(36ch, calc(100vw - 48px)); text-align: center; text-wrap: balance;

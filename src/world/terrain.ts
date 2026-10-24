@@ -7,10 +7,21 @@
 //   plazaQuery(x, z)   nearest plaza: signed distance from its edge (negative = inside).
 //
 // groundY is baked into a 1 m grid at load and sampled bilinearly, so it is cheap to call every frame.
+// The nearest-segment loops skip segments whose bounding box alone proves they cannot change the answer;
+// the arithmetic on the segments that remain is unchanged, so every result is bit-identical to a full scan.
 import { ROADS, PLAZAS, WORLD_BOUNDS, type Road, type Plaza } from './layout';
 import { fbm2, lerp, smooth, clamp } from '../core/math';
 
-interface Seg { ax: number; az: number; bx: number; bz: number; ya: number; yb: number; hw: number; road: Road; s0: number; L: number }
+interface Seg {
+  ax: number; az: number; bx: number; bz: number; ya: number; yb: number; hw: number; road: Road; s0: number; L: number;
+  /** b − a, and L² (the same doubles the queries used to compute inline). */
+  dx: number; dz: number; L2: number;
+  /** Bounding box of the centre line. */
+  x0: number; z0: number; x1: number; z1: number;
+}
+
+/** Beyond this distance from a road's edge, rawHeight no longer feels it (blend fades out by 15 m, hills by 30 m). */
+const HEIGHT_REACH = 30.01;
 
 const SEGS: Seg[] = [];
 for (const road of ROADS) {
@@ -18,10 +29,17 @@ for (const road of ROADS) {
   for (let i = 1; i < road.pts.length; i++) {
     const [ax, az] = road.pts[i - 1], [bx, bz] = road.pts[i];
     const L = Math.hypot(bx - ax, bz - az);
-    SEGS.push({ ax, az, bx, bz, ya: road.ys[i - 1], yb: road.ys[i], hw: road.width / 2, road, s0: s, L });
+    SEGS.push({
+      ax, az, bx, bz, ya: road.ys[i - 1], yb: road.ys[i], hw: road.width / 2, road, s0: s, L,
+      dx: bx - ax, dz: bz - az, L2: L * L,
+      x0: Math.min(ax, bx), z0: Math.min(az, bz), x1: Math.max(ax, bx), z1: Math.max(az, bz),
+    });
     s += L;
   }
 }
+const NSEG = SEGS.length;
+/** Per-query scratch: squared distance from the point to each segment's bounding box. */
+const BOX2 = new Float64Array(NSEG);
 
 export interface RoadHit {
   /** Distance from the road's edge (negative on the road surface). */
@@ -37,43 +55,84 @@ export interface RoadHit {
   lateral: number;
 }
 
-export function roadQuery(x: number, z: number): RoadHit {
-  let best: RoadHit | null = null;
-  for (const g of SEGS) {
-    const dx = g.bx - g.ax, dz = g.bz - g.az;
-    const t = clamp(((x - g.ax) * dx + (z - g.az) * dz) / (g.L * g.L));
-    const cx = g.ax + dx * t, cz = g.az + dz * t;
-    const d = Math.hypot(x - cx, z - cz);
-    const edge = d - g.hw;
-    if (!best || edge < best.edge) {
-      // right of walking direction = (−dz, dx) / L
-      const lateral = ((x - cx) * -dz + (z - cz) * dx) / g.L;
-      best = { edge, centre: d, road: g.road, y: lerp(g.ya, g.yb, t), s: g.s0 + g.L * t, lateral };
-    }
+// nearest-road scratch, written by nearestRoad()
+let nI = 0, nEdge = 0, nD = 0, nT = 0, nLat = 0;
+
+/** Exact edge distance of segment i from (x, z); fills the scratch when it beats (or ties earlier than) the best. */
+function trySeg(i: number, x: number, z: number, first: boolean) {
+  const g = SEGS[i];
+  const t = clamp(((x - g.ax) * g.dx + (z - g.az) * g.dz) / g.L2);
+  const cx = g.ax + g.dx * t, cz = g.az + g.dz * t;
+  const d = Math.hypot(x - cx, z - cz);
+  const edge = d - g.hw;
+  // the full scan keeps the first segment with the smallest edge: an earlier index wins a tie
+  if (first || edge < nEdge || (edge === nEdge && i < nI)) {
+    nI = i; nEdge = edge; nD = d; nT = t;
+    // right of walking direction = (−dz, dx) / L
+    nLat = ((x - cx) * -g.dz + (z - cz) * g.dx) / g.L;
   }
-  return best!;
+}
+
+/**
+ * Nearest road segment to (x, z), same answer as scanning every segment in order. Seeds the search with the
+ * segment whose bounding box is closest, then skips any segment whose box is already farther than the best edge.
+ */
+function nearestRoad(x: number, z: number) {
+  let seed = 0, seedBox = Infinity;
+  for (let i = 0; i < NSEG; i++) {
+    const g = SEGS[i];
+    const qx = x < g.x0 ? g.x0 - x : x > g.x1 ? x - g.x1 : 0, qz = z < g.z0 ? g.z0 - z : z > g.z1 ? z - g.z1 : 0;
+    const q2 = qx * qx + qz * qz;
+    BOX2[i] = q2;
+    if (q2 < seedBox) { seedBox = q2; seed = i; }
+  }
+  trySeg(seed, x, z, true);
+  for (let i = 0; i < NSEG; i++) {
+    if (i === seed) continue;
+    const lim = nEdge + SEGS[i].hw + 1e-6; // its edge is at least √BOX2 − hw
+    if (lim < 0 || BOX2[i] > lim * lim) continue;
+    trySeg(i, x, z, false);
+  }
+}
+
+export function roadQuery(x: number, z: number): RoadHit {
+  nearestRoad(x, z);
+  const g = SEGS[nI];
+  return { edge: nEdge, centre: nD, road: g.road, y: lerp(g.ya, g.yb, nT), s: g.s0 + g.L * nT, lateral: nLat };
 }
 
 export interface PlazaHit { edge: number; plaza: Plaza }
-export function plazaQuery(x: number, z: number): PlazaHit {
-  let best: PlazaHit | null = null;
-  for (const p of PLAZAS) {
-    const [x0, z0, x1, z1] = p.rect;
+
+let pI = 0;
+/** Signed edge distance to the nearest plaza (negative inside); its index lands in pI. */
+function nearestPlaza(x: number, z: number) {
+  let best = Infinity;
+  for (let i = 0; i < PLAZAS.length; i++) {
+    const [x0, z0, x1, z1] = PLAZAS[i].rect;
     const qx = Math.max(x0 - x, 0, x - x1), qz = Math.max(z0 - z, 0, z - z1);
     const outside = Math.hypot(qx, qz);
     const inside = Math.min(Math.min(x - x0, x1 - x), Math.min(z - z0, z1 - z));
     const edge = outside > 0 ? outside : -inside;
-    if (!best || edge < best.edge) best = { edge, plaza: p };
+    if (i === 0 || edge < best) { best = edge; pI = i; }
   }
-  return best!;
+  return best;
+}
+
+export function plazaQuery(x: number, z: number): PlazaHit {
+  const edge = nearestPlaza(x, z);
+  return { edge, plaza: PLAZAS[pI] };
 }
 
 function rawHeight(x: number, z: number) {
   const base = -0.085 * z + 0.02 * x;
   let wsum = 0, ysum = 0, wmax = 0, near = Infinity;
   for (const g of SEGS) {
-    const dx = g.bx - g.ax, dz = g.bz - g.az;
-    const t = clamp(((x - g.ax) * dx + (z - g.az) * dz) / (g.L * g.L));
+    // more than HEIGHT_REACH from its edge a segment has w = 0 and cannot pull `near` under 30, where the
+    // hill fade saturates: skipping it changes nothing
+    const r = g.hw + HEIGHT_REACH;
+    if (x < g.x0 - r || x > g.x1 + r || z < g.z0 - r || z > g.z1 + r) continue;
+    const dx = g.dx, dz = g.dz;
+    const t = clamp(((x - g.ax) * dx + (z - g.az) * dz) / g.L2);
     const d = Math.hypot(x - g.ax - dx * t, z - g.az - dz * t) - g.hw;
     near = Math.min(near, d);
     const w = 1 - smooth(1.2, 15, d);
@@ -91,7 +150,9 @@ function rawHeight(x: number, z: number) {
     const ww = (w * w * 6) / (0.25 + d);
     wsum += ww; ysum += ww * p.y; wmax = Math.max(wmax, w);
   }
-  const hills = (fbm2(x * 0.03 + 3.1, z * 0.03 - 7.7, 4) - 0.5) * 9 * smooth(5, 30, near);
+  // within 5 m of a street the hills are scaled to zero: skip the noise there
+  const hf = smooth(5, 30, near);
+  const hills = hf > 0 ? (fbm2(x * 0.03 + 3.1, z * 0.03 - 7.7, 4) - 0.5) * 9 * hf : 0;
   const off = base + hills;
   if (wsum <= 0) return off;
   return lerp(off, ysum / wsum, wmax);
@@ -127,18 +188,28 @@ export function groundNormal(x: number, z: number): [number, number, number] {
 
 // ---- diorama rim ---------------------------------------------------------------------------------------
 const RIM = 22; // metres of countryside kept around the streets
+/** The rim wobble stays within ±WOB m. */
+const WOB = 8;
+
+/** Distance (m) from the nearest street / plaza edge, without the wobble. */
+function streetDistance(x: number, z: number) {
+  nearestRoad(x, z);
+  return Math.min(nEdge, nearestPlaza(x, z));
+}
+const wobble = (x: number, z: number) => (fbm2(x * 0.045 + 11.3, z * 0.045 - 4.7, 3) - 0.5) * 16;
 
 /** Distance (m) from the nearest street / plaza edge, wobbled so the rim reads organic. */
 export function rimDistance(x: number, z: number) {
-  const r = roadQuery(x, z).edge;
-  const p = plazaQuery(x, z).edge;
-  const wob = (fbm2(x * 0.045 + 11.3, z * 0.045 - 4.7, 3) - 0.5) * 16;
-  return Math.min(r, p) + wob;
+  return streetDistance(x, z) + wobble(x, z);
 }
 
 /** 1 well inside the playable diorama, falling to 0 at the rim. */
 export function worldMask(x: number, z: number) {
-  return 1 - smooth(RIM - 4, RIM, rimDistance(x, z));
+  const m = streetDistance(x, z);
+  // the wobble cannot carry these across the RIM − 4 … RIM band: the mask is exactly 1 / 0 without it
+  if (m < RIM - 4 - WOB - 0.01) return 1;
+  if (m > RIM + WOB + 0.01) return 0;
+  return 1 - smooth(RIM - 4, RIM, m + wobble(x, z));
 }
 
 /** Walkable: inside the rim and ≥ 6 m inside WORLD_BOUNDS (the player controller keeps the boy here). */

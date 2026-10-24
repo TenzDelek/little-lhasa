@@ -12,8 +12,9 @@ import { hash12 } from '../../core/tsl';
 import { U, WIND_DIR } from '../../core/uniforms';
 import { pick } from '../../core/math';
 import { roadFrame, type Road } from '../layout';
-import { beam, srng, wire } from '../../kit/street';
-import { type PCtx, count, mark } from './ctx';
+import { beam, powerPole, srng, wire } from '../../kit/street';
+import { groundY } from '../terrain';
+import { type PCtx, count, mark, solid } from './ctx';
 import { DHARAMKOT, TEMPLE_RD, edgePt, freeRange } from './plan';
 import { safeSag } from './power';
 
@@ -212,11 +213,35 @@ export function buildBanners(c: PCtx) {
 }
 
 /**
+ * The shop on the east corner at the head of Dharamkot Road is single-storey, so nothing on that side stands
+ * high enough to tie the span to: a concrete electric pole on the verge by its corner carries it instead
+ * (an anchor for tie()). It stands 0.45 m outside the asphalt, behind the kerb and clear of the shop's front.
+ */
+function cornerPole(c: PCtx) {
+  const road = DHARAMKOT;
+  for (const s of [4.5, 4, 5, 3.5, 5.5, 6]) {
+    const p = edgePt(road, s, 1, 0.45);
+    const y = groundY(p.x, p.z);
+    if (c.obs.blocked(p.x, p.z, 0.36, y + 0.05, y + 7.6)) continue;
+    if (c.obs.structureDist(p.x, p.z, 1.6, 2.5) < 0.85) continue;
+    // crossbar along the road (the bundle leaves it across the road, from the pole top)
+    const P = powerPole(c.tall, p.x, y, p.z, p.yawIn, 'concrete', 5300);
+    solid(c, P.collider);
+    c.anchors.push({ x: p.x, z: p.z, y, top: P.top[1], kind: 'pole', road: road.id, s });
+    count(c, 'poles');
+    mark(c, 'pole:dharamkot-head', p.x, p.z);
+    return;
+  }
+  count(c, 'cornerPoleMissed');
+}
+
+/**
  * The overhead span across the head of Dharamkot Road where it leaves the square: a bundle of cables between
- * the corner buildings, a lungta string above, and a welcome banner below.
+ * the corner building and the corner pole, a lungta string above, and a welcome banner below.
  */
 function dharamkotHead(c: PCtx, list: Banner[], r: () => number) {
   const road = DHARAMKOT;
+  cornerPole(c);
   for (const s of [5, 4, 6, 3.5, 6.5, 7.5]) {
     const A = tie(c, road, s, -1, 6.3, 5.0, 3.6), B = tie(c, road, s + 0.6, 1, 6.1, 5.0, 3.6);
     if (!A || !B) continue;

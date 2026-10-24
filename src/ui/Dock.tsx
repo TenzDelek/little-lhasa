@@ -19,7 +19,7 @@ export function Dock() {
         <DayGlyph night={night} />
         <span><span className={night ? 'btn-off' : undefined}>Day</span><span className="btn-off"> / </span><span className={night ? undefined : 'btn-off'}>Night</span></span>
       </button>
-      <button type="button" className="btn" title="Camera (C)" aria-label={`Camera: ${cam === 'iso' ? 'diorama' : 'chase'}`} onClick={(e) => { input.press('camera'); blurIfPointer(e); }}>
+      <button type="button" className="btn" title="Camera (C)" aria-label={`Camera: ${cam}`} onClick={(e) => { input.press('camera'); blurIfPointer(e); }}>
         <span className="dot" aria-hidden="true" /><span className="btn-word">Camera</span><span className="btn-val">{cam === 'iso' ? 'Iso' : 'Chase'}</span>
       </button>
       <button type="button" className="btn" aria-pressed={!muted} title="Sound (M)" aria-label="Sound" onClick={(e) => { G().toggleMute(); blurIfPointer(e); }}>

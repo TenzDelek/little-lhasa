@@ -88,7 +88,7 @@ export function HelpCard() {
               <dt><span className="tglyph" aria-hidden="true">✋</span><span className="sr-only">Hand button</span></dt><dd>Talk · spin · light · buy</dd>
               <dt>Jump</dt><dd>Hop up steps and walls</dd>
               <dt><PixelIcon grid={ROT_L} size={14} /><PixelIcon grid={ROT_R} size={14} /><span className="sr-only">Turn buttons</span></dt><dd>Turn the view 90°</dd>
-              <dt>Cam</dt><dd>Diorama / chase camera</dd>
+              <dt>Cam</dt><dd>Iso / chase camera</dd>
               <dt>Right side</dt><dd>Drag to turn · pinch to zoom</dd>
             </dl>
           </section>
@@ -102,7 +102,7 @@ export function HelpCard() {
               <dt><KeyCap k="Space" /></dt><dd>Jump</dd>
               <dt><KeyCap k="E" /></dt><dd>Talk · spin · light · buy</dd>
               <dt><KeyCap k="Q" /><KeyCap k="R" /></dt><dd>Turn the view 90°</dd>
-              <dt><KeyCap k="C" /></dt><dd>Diorama / chase camera</dd>
+              <dt><KeyCap k="C" /></dt><dd>Iso / chase camera</dd>
               <dt><KeyCap k="N" /></dt><dd>Day / night</dd>
               <dt><KeyCap k="M" /></dt><dd>Sound on / off</dd>
               <dt><KeyCap k="J" /></dt><dd>Errand log</dd>
@@ -169,7 +169,7 @@ function PauseButtons({ night, cam, muted }: { night: boolean; cam: 'iso' | 'cha
         Day / Night <span className="menu-val">{night ? 'Night' : 'Day'}</span>
       </button>
       <button type="button" className="btn" onClick={() => input.press('camera')}>
-        Camera <span className="menu-val">{cam === 'iso' ? 'Diorama' : 'Chase'}</span>
+        Camera <span className="menu-val">{cam === 'iso' ? 'Iso' : 'Chase'}</span>
       </button>
       <button type="button" className="btn" aria-pressed={!muted} onClick={() => G().toggleMute()}>
         Sound <span className="menu-val">{muted ? 'Off' : 'On'}</span>

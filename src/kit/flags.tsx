@@ -1,15 +1,16 @@
 // Prayer flags: lungta strings (horizontal lines of small square flags, blue-white-red-green-yellow,
-// sagging, fluttering in the wind) and darchor (tall vertical pole flags). One InstancedMesh per component.
+// sagging, fluttering in the wind) and darchor (tall vertical pole flags). Instanced, a few meshes per area.
 //
 // API CONTRACT — other modules code against these components. Keep props stable; only add optional ones.
 //   <PrayerFlags lines={[{ a: [0, 5, 0], b: [8, 4.6, 3] }]} />
 //   <Darchor poles={[{ x: 3, z: -2, h: 6 }]} />
 //   <PrayerFlags lines={[...flagChain([roofA, poleTop, roofB], { age: 0.4 }), ...flagFan(top, 12, 6)]} />
 //   (flagChain / flagFan live in ./street so this file only exports components + types.)
-// Put every line of an area in ONE <PrayerFlags> (one draw call however many flags).
+// Put every line of an area in ONE <PrayerFlags> (a handful of draw calls however many flags).
 //
 // How it works
-// - Every flag of every line in one <PrayerFlags> is ONE InstancedMesh (one draw call, + one shadow call):
+// - The flags of one <PrayerFlags> are InstancedMeshes, one per chunk of the area (CHUNK_EXT below), so
+//   the camera and the shadow pass cull the far chunks. Each flag is
 //   a 2x3-subdivided unit plane hanging down from its top edge. The instance matrix places the flag's top
 //   edge on the string (following the string's slope); per-instance attributes carry the hang direction,
 //   the downwind normal and a phase. A TSL positionNode swings each flag about the string (the swing grows
@@ -17,9 +18,10 @@
 //   U.time, U.wind and WIND_DIR. Shadows follow the motion.
 // - The colorNode prints a 1-px wind-horse (lungta) block on a 5x5 cell grid; aged flags are bleached on the
 //   CPU (instance colour) and tattered ones get a ragged bottom edge (maskNode) and are shorter.
-// - Strings are one merged Parts mesh of thin boxes along a parabolic catenary.
+// - Strings are one merged Parts mesh per chunk of thin boxes along a parabolic catenary.
 // - Darchor: pole + base + finial (Parts), the long vertical banners as a second InstancedMesh with their own
-//   flap shader, and a few lungta strings radiating from the top to the ground (a nested <PrayerFlags>).
+//   flap shader, and a few lungta strings radiating from the top to the ground (a nested <PrayerFlags>),
+//   strung only where they cross no road or plaza below head height.
 import { useEffect, useMemo } from 'react';
 import {
   Color, InstancedBufferAttribute, InstancedMesh, Matrix4, PlaneGeometry, Vector3, type Mesh,
@@ -36,7 +38,7 @@ import { U, WIND_DIR } from '../core/uniforms';
 import { hash12 } from '../core/tsl';
 import { clamp, pick } from '../core/math';
 import { collision } from '../core/collision';
-import { groundY } from '../world/terrain';
+import { groundY, plazaQuery, roadQuery } from '../world/terrain';
 import { beam, sagAt, sagTangent, seedOf, srng } from './street';
 
 export interface FlagLine {
@@ -63,6 +65,8 @@ export interface DarchorPole {
   y?: number;
   /** Colour of the long vertical banner (default lungta cycle by seed). */
   color?: number;
+  /** Directions (radians, 0 = +x, π/2 = +z) the ground strings may take, default all round. */
+  arc?: [number, number];
   seed?: number;
 }
 
@@ -161,7 +165,7 @@ const _p = new Vector3(), _t = new Vector3(), _h = new Vector3(), _up = new Vect
 const _n = new Vector3(), _tx = new Vector3(), _uy = new Vector3(), _m = new Matrix4(), _q = new Vector3();
 const WIND_H = new Vector3(WIND_DIR.x, 0, WIND_DIR.z).normalize();
 
-interface FlagBuild { flags: InstancedMesh | null; strings: Mesh | null }
+interface FlagBuild { flags: InstancedMesh[]; strings: Mesh[] }
 
 // Dispose GPU resources when a component really unmounts. React StrictMode runs effect cleanups once on a
 // simulated unmount and immediately re-mounts; deferring by a tick lets the re-mount cancel the disposal.
@@ -175,66 +179,105 @@ function useDisposeOnUnmount(obj: object, dispose: () => void) {
   }, [obj]);
 }
 
-/** Build every line's flags into one InstancedMesh and every string into one merged mesh. */
-function buildFlags(lines: readonly FlagLine[], withStrings: boolean, shadows: boolean): FlagBuild {
-  // pass 1: count
-  type Prep = { line: FlagLine; sag: number; cum: Float32Array; N: number; L: number; ss: number[] };
-  const preps: Prep[] = [];
+// Chunking: the lines of one <PrayerFlags> are split into chunks at most CHUNK_EXT m across (xz), each with its
+// own flags InstancedMesh and strings mesh and so its own bounding sphere: the camera and the sun's shadow pass
+// skip the chunks out of view instead of drawing every flag in the area. Lines are never cut (a line's flags
+// and string share a chunk), and a group of under 2 x CHUNK_MIN flags is not split further (a draw call is
+// worth more than a few hundred flags). Splits fall at the flag-weighted median of the line midpoints along
+// the longer side, so chunks stay balanced and the result depends only on the lines.
+// Measured over the five main spots (shots/fix-flags/perf-*.txt): 56 m / 200 turns the town's 6 flag meshes
+// into 12 and draws a third fewer flag + string triangles per frame for ~5 more draw calls per pass; 40 m / 120
+// made 22 meshes and cost twice the draw calls for little more culling.
+const CHUNK_EXT = 56;
+const CHUNK_MIN = 200;
+/** Darchor ground strings: no part of one lower than this above the ground (m) may hang over a road or plaza… */
+const WALK_CLEAR = 2.2;
+/** …including this far outside the road or plaza edge (m). */
+const WALK_MARGIN = 0.3;
+/** A string that would hang over a walkway is turned by this (rad) and tried again, up to STRING_TRIES times. */
+const STRING_TURN = 0.6;
+const STRING_TRIES = 11;
+/** Strings are polylines through the sag curve; fewest segments that keep within this of the curve (m). */
+const STRING_TOL = 0.005;
+
+type Prep = { line: FlagLine; sag: number; cum: Float32Array; N: number; L: number; ss: number[]; mx: number; mz: number };
+
+/** Arc-length table and flag stations of one line (null when the line is too short to draw). */
+function prepLine(line: FlagLine): Prep | null {
+  const { a, b } = line;
+  const span = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  if (span < 0.2) return null;
+  const sag = line.sag ?? span * 0.06;
+  const N = Math.max(8, Math.min(240, Math.ceil(span / 0.2)));
+  const cum = new Float32Array(N + 1);
+  sagAt(a, b, sag, 0, _p);
+  for (let i = 1; i <= N; i++) {
+    sagAt(a, b, sag, i / N, _q);
+    cum[i] = cum[i - 1] + _q.distanceTo(_p);
+    _p.copy(_q);
+  }
+  const L = cum[N];
+  const spacing = Math.max(0.12, line.spacing ?? 0.3);
+  const margin = Math.max(0.12, spacing * 0.5);
+  const ss: number[] = [];
+  if (L > margin * 2) {
+    const K = Math.floor((L - 2 * margin) / spacing) + 1;
+    const start = (L - (K - 1) * spacing) / 2;
+    for (let k = 0; k < K; k++) ss.push(start + k * spacing);
+  }
+  return { line, sag, cum, N, L, ss, mx: (a[0] + b[0]) / 2, mz: (a[2] + b[2]) / 2 };
+}
+
+function chunkLines(preps: Prep[], out: Prep[][]): Prep[][] {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, n = 0;
+  for (const { line: { a, b }, ss } of preps) {
+    x0 = Math.min(x0, a[0], b[0]); x1 = Math.max(x1, a[0], b[0]);
+    z0 = Math.min(z0, a[2], b[2]); z1 = Math.max(z1, a[2], b[2]);
+    n += ss.length;
+  }
+  if (preps.length < 2 || n < 2 * CHUNK_MIN || Math.max(x1 - x0, z1 - z0) <= CHUNK_EXT) {
+    out.push(preps);
+    return out;
+  }
+  const s = [...preps].sort(x1 - x0 >= z1 - z0 ? (p, q) => p.mx - q.mx : (p, q) => p.mz - q.mz);
+  let acc = 0, cut = 0;
+  while (cut < s.length - 1 && acc < n / 2) acc += s[cut++].ss.length;
+  chunkLines(s.slice(0, cut), out);
+  return chunkLines(s.slice(cut), out);
+}
+
+/** Every string of a chunk as one merged mesh: thin boxes along the sag curve plus a knot at each end. */
+function buildStrings(chunk: readonly Prep[], shadows: boolean): Mesh | null {
+  if (!chunk.length) return null;
+  const parts = new Parts();
+  for (const { line, sag } of chunk) {
+    // a chord of the parabola over 1/n of the line strays sag / n² from it
+    const n = Math.max(4, Math.min(48, Math.ceil(Math.sqrt(sag / STRING_TOL))));
+    sagAt(line.a, line.b, sag, 0, _p);
+    for (let i = 1; i <= n; i++) {
+      sagAt(line.a, line.b, sag, i / n, _q);
+      beam(parts, _p, _q, 0.04, STRING_COL);
+      _p.copy(_q);
+    }
+    // knots at both ends
+    parts.box(0.07, 0.07, 0.07, [line.a[0], line.a[1], line.a[2]], STRING_COL);
+    parts.box(0.07, 0.07, 0.07, [line.b[0], line.b[1], line.b[2]], STRING_COL);
+  }
+  const strings = parts.toMesh(partsMaterial(), shadows);
+  strings.name = 'lungta-strings';
+  return strings;
+}
+
+/** Every flag of a chunk as one InstancedMesh (null when the chunk has none). */
+function buildCloth(chunk: readonly Prep[], shadows: boolean): InstancedMesh | null {
   let total = 0;
-  for (const line of lines) {
-    const { a, b } = line;
-    const span = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-    if (span < 0.2) continue;
-    const sag = line.sag ?? span * 0.06;
-    const N = Math.max(8, Math.min(240, Math.ceil(span / 0.2)));
-    const cum = new Float32Array(N + 1);
-    const p0 = new Vector3(), p1 = new Vector3();
-    sagAt(a, b, sag, 0, p0);
-    for (let i = 1; i <= N; i++) {
-      sagAt(a, b, sag, i / N, p1);
-      cum[i] = cum[i - 1] + p1.distanceTo(p0);
-      p0.copy(p1);
-    }
-    const L = cum[N];
-    const spacing = Math.max(0.12, line.spacing ?? 0.3);
-    const margin = Math.max(0.12, spacing * 0.5);
-    const ss: number[] = [];
-    if (L > margin * 2) {
-      const K = Math.floor((L - 2 * margin) / spacing) + 1;
-      const start = (L - (K - 1) * spacing) / 2;
-      for (let k = 0; k < K; k++) ss.push(start + k * spacing);
-    }
-    total += ss.length;
-    preps.push({ line, sag, cum, N, L, ss });
-  }
-
-  // strings
-  let strings: Mesh | null = null;
-  if (withStrings && preps.length) {
-    const parts = new Parts();
-    const q0 = new Vector3(), q1 = new Vector3();
-    for (const { line, sag, L } of preps) {
-      const n = Math.max(4, Math.min(48, Math.ceil(L / 0.45)));
-      sagAt(line.a, line.b, sag, 0, q0);
-      for (let i = 1; i <= n; i++) {
-        sagAt(line.a, line.b, sag, i / n, q1);
-        beam(parts, q0, q1, 0.04, STRING_COL);
-        q0.copy(q1);
-      }
-      // knots at both ends
-      parts.box(0.07, 0.07, 0.07, [line.a[0], line.a[1], line.a[2]], STRING_COL);
-      parts.box(0.07, 0.07, 0.07, [line.b[0], line.b[1], line.b[2]], STRING_COL);
-    }
-    strings = parts.toMesh(partsMaterial(), shadows);
-  }
-
-  if (!total) return { flags: null, strings };
-
+  for (const { ss } of chunk) total += ss.length;
+  if (!total) return null;
   const geo = baseFlagGeometry().clone();
   const fH = new Float32Array(total * 4), fN = new Float32Array(total * 4), fM = new Float32Array(total * 4);
   const mesh = new InstancedMesh(geo, flagMaterial(), total);
   let idx = 0;
-  for (const { line, sag, cum, N, ss } of preps) {
+  for (const { line, sag, cum, N, ss } of chunk) {
     const { a, b } = line;
     const r = srng(line.seed ?? seedOf(a[0] * 3.1 + b[2], a[2] * 1.7 + b[0] + a[1]));
     const size = line.size ?? 0.24;
@@ -291,10 +334,30 @@ function buildFlags(lines: readonly FlagLine[], withStrings: boolean, shadows: b
   if (mesh.boundingSphere) mesh.boundingSphere.radius += 0.6; // flutter reaches beyond the rest pose
   mesh.castShadow = shadows;
   mesh.receiveShadow = true;
-  return { flags: mesh, strings };
+  mesh.name = 'lungta-flags';
+  return mesh;
 }
 
-/** Lungta strings. All flags of all lines are one InstancedMesh; all strings one merged mesh. */
+/** Chunk the lines; per chunk, its flags as one InstancedMesh and its strings as one merged mesh. */
+function buildFlags(lines: readonly FlagLine[], withStrings: boolean, shadows: boolean): FlagBuild {
+  const preps: Prep[] = [];
+  for (const line of lines) {
+    const p = prepLine(line);
+    if (p) preps.push(p);
+  }
+  const out: FlagBuild = { flags: [], strings: [] };
+  if (!preps.length) return out;
+  for (const chunk of chunkLines(preps, [])) {
+    const cloth = buildCloth(chunk, shadows);
+    if (cloth) out.flags.push(cloth);
+    const str = withStrings ? buildStrings(chunk, shadows) : null;
+    if (str) out.strings.push(str);
+  }
+  return out;
+}
+
+/** Lungta strings. The flags of all lines are InstancedMeshes and the strings merged meshes, one of each per
+ *  chunk of the area (see CHUNK_EXT), so a whole area costs a handful of draw calls and culls by chunk. */
 export function PrayerFlags(props: {
   lines: FlagLine[];
   /** Draw the strings (default true). */
@@ -307,20 +370,29 @@ export function PrayerFlags(props: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const built = useMemo(() => buildFlags(lines, strings, castShadow), [key, strings, castShadow]);
   useDisposeOnUnmount(built, () => {
-    built.flags?.geometry.dispose();
-    built.flags?.dispose();
-    built.strings?.geometry.dispose();
+    for (const m of built.flags) { m.geometry.dispose(); m.dispose(); }
+    for (const m of built.strings) m.geometry.dispose();
   });
   return (
     <>
-      {built.flags && <primitive object={built.flags} />}
-      {built.strings && <primitive object={built.strings} />}
+      {built.flags.map((m) => <primitive key={m.uuid} object={m} />)}
+      {built.strings.map((m) => <primitive key={m.uuid} object={m} />)}
     </>
   );
 }
 
 // ---- darchor -----------------------------------------------------------------------------------------
 interface DarchorBuild { pole: Mesh; banners: InstancedMesh | null; lines: FlagLine[]; colliders: Parameters<typeof collision.addCircle>[0][] }
+
+/** Would any point of the line lower than WALK_CLEAR above the ground hang over a road or plaza? */
+function overWalkway(a: V3, b: V3, sag: number) {
+  for (let i = 0; i <= 12; i++) {
+    sagAt(a, b, sag, i / 12, _p);
+    if (_p.y - groundY(_p.x, _p.z) >= WALK_CLEAR) continue;
+    if (roadQuery(_p.x, _p.z).edge < WALK_MARGIN || plazaQuery(_p.x, _p.z).edge < WALK_MARGIN) return true;
+  }
+  return false;
+}
 
 function buildDarchor(poles: readonly DarchorPole[], strings: number, shadows: boolean): DarchorBuild {
   const parts = new Parts();
@@ -391,18 +463,37 @@ function buildDarchor(poles: readonly DarchorPole[], strings: number, shadows: b
     // ties where the banner meets the pole
     for (let k = 0; k <= 3; k++) parts.box(rTop * 2 + 0.05, 0.04, rTop * 2 + 0.05, [x, b0 + (len * k) / 3, z], 0x2b2622);
 
-    // lungta strings radiating from the top down to stones on the ground
-    const a0 = r() * Math.PI * 2;
+    // lungta strings radiating from the top down to stones on the ground, spread over the pole's arc (default
+    // all round). A string that would hang over a road or plaza below head height, or run within `apart` of
+    // one already strung, is turned by STRING_TURN (alternating sides, staying inside the arc) and tried
+    // again, and dropped when no direction is clear. Every random draw comes before the retries, so a pole's
+    // strings depend on its seed alone.
+    const [arc0, arc1] = pole.arc ?? [0, Math.PI * 2];
+    const full = arc1 - arc0 >= Math.PI * 2 - 1e-3;
+    const a0 = full ? r() * Math.PI * 2 : arc0;
+    const strung: number[] = [];
+    const apart = Math.min(0.35, Math.PI / (2 * strings));
+    const near = (ak: number) => strung.some((p) => Math.abs(((ak - p + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI) < apart);
     for (let s = 0; s < strings; s++) {
-      const a = a0 + (s / strings) * Math.PI * 2 + (r() - 0.5) * 0.5;
+      const spread = full ? s / strings : strings === 1 ? 0.5 : s / (strings - 1);
+      let a = a0 + (arc1 - arc0) * spread + (r() - 0.5) * (full ? 0.5 : 0.25);
+      if (!full) a = clamp(a, arc0, arc1);
       const R = H * (0.7 + r() * 0.25);
-      const ax = x + Math.cos(a) * R, az = z + Math.sin(a) * R;
-      const gy = groundY(ax, az);
-      const A: V3 = [x + Math.cos(a) * rTop, top - 0.45, z + Math.sin(a) * rTop];
-      const B: V3 = [ax, gy + 0.18, az];
-      const span = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]);
-      lines.push({ a: A, b: B, sag: span * 0.04, age: 0.15 + r() * 0.5, seed: Math.floor(r() * 1e6) });
-      parts.box(0.22, 0.16, 0.2, [ax, gy + 0.06, az], PAL.rockDark, { rot: [0, r() * 3, 0] });
+      const age = 0.15 + r() * 0.5, seed = Math.floor(r() * 1e6), rot = r() * 3;
+      for (let k = 0; k < STRING_TRIES; k++) {
+        const ak = a + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * STRING_TURN;
+        if ((!full && (ak < arc0 || ak > arc1)) || near(ak)) continue;
+        const ax = x + Math.cos(ak) * R, az = z + Math.sin(ak) * R;
+        const gy = groundY(ax, az);
+        const A: V3 = [x + Math.cos(ak) * rTop, top - 0.45, z + Math.sin(ak) * rTop];
+        const B: V3 = [ax, gy + 0.18, az];
+        const sag = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]) * 0.04;
+        if (overWalkway(A, B, sag)) continue;
+        lines.push({ a: A, b: B, sag, age, seed });
+        parts.box(0.22, 0.16, 0.2, [ax, gy + 0.06, az], PAL.rockDark, { rot: [0, rot, 0] });
+        strung.push(ak);
+        break;
+      }
     }
   });
 
@@ -416,15 +507,19 @@ function buildDarchor(poles: readonly DarchorPole[], strings: number, shadows: b
     if (banners.boundingSphere) banners.boundingSphere.radius += 0.8;
     banners.castShadow = shadows;
     banners.receiveShadow = true;
+    banners.name = 'darchor-banners';
   }
   const pole = parts.toMesh(partsMaterial({ occlude: true }), shadows);
+  pole.name = 'darchor-pole';
   return { pole, banners, lines, colliders };
 }
 
 /**
  * Darchor: tall wooden poles, each with a long vertical banner streaming downwind, a gilded finial, a
  * khata tied round it, a stone cairn or whitewashed plinth at its foot, and `strings` lungta lines
- * radiating from the top down to stones on the ground. Registers its own colliders (pole + base).
+ * radiating from the top down to stones on the ground, kept off roads and plazas (a string that would hang
+ * over one below head height is turned, or dropped; `arc` on the pole limits the directions). Registers its
+ * own colliders (pole + base).
  */
 export function Darchor(props: {
   poles: DarchorPole[];

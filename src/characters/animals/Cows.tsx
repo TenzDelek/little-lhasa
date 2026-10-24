@@ -10,7 +10,8 @@ import { game } from '../../core/game';
 import { damp, rng, type Rng } from '../../core/math';
 import { roadById, roadFrame } from '../../world/layout';
 import { groundY } from '../../world/terrain';
-import { animateQuad, type QuadRig } from './quad';
+import { animateQuad, CATCH_UP_DT, type QuadRig } from './quad';
+import { View } from '../cull';
 import { buildCow, COW_COATS } from './species';
 import { blocked, hdist, isNight, sfxAt } from './nav';
 
@@ -43,6 +44,7 @@ function fit(c: Cow) {
 }
 
 export function Cows() {
+  const view = useMemo(() => new View(), []);
   const { group, cows } = useMemo(() => {
     const group = new Group();
     const cows: Cow[] = DEFS.map((d, i) => {
@@ -94,14 +96,18 @@ export function Cows() {
     return () => { offs.forEach((f) => f()); clearTimeout(t1); clearTimeout(t2); for (const c of cows) c.cols.length = 0; delete w.__cows; };
   }, [cows]);
 
-  useFrame(() => {
+  useFrame((state) => {
     const dt = game.dt;
     if (dt <= 0) return;
     const P = game.player.pos;
     const night = isNight();
+    view.update(state.camera);
     for (const c of cows) {
       const dist = hdist(c, P);
-      c.rig.root.visible = dist < 65;
+      // drawn (and animated) only on screen, with room for the shadow
+      const was = c.rig.root.visible;
+      const shown = dist < 65 && view.sees(c.x, c.y + 0.7, c.z, 2.6);
+      c.rig.root.visible = shown;
       if (dist > 65) continue;
       c.t += dt;
       // posture: lie down / get up now and then; always lying at night
@@ -136,8 +142,8 @@ export function Cows() {
       }
       c.near = nearNow;
       c.pitch = damp(c.pitch, c.mouth > 0.3 ? -0.3 : 0, 3, dt);
-      animateQuad(c.rig, {
-        dt, time: game.time, speed: 0, pose: c.lying ? 'lie' : 'stand', poseRate: 0.9, rate: 6,
+      if (shown) animateQuad(c.rig, {
+        dt: was ? dt : CATCH_UP_DT, time: game.time, speed: 0, pose: c.lying ? 'lie' : 'stand', poseRate: 0.9, rate: 6,
         lookYaw: c.look, lookPitch: c.pitch + (c.lying ? -0.05 : 0.05),
         chew: c.chew * (1 - c.mouth), mouth: c.mouth * 0.7, swish: c.swish, ear: c.ear,
         sleep: night && c.lying,

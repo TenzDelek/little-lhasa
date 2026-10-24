@@ -15,6 +15,12 @@ export const C = (hex: number): Node<'vec3'> => {
   return vec3(c.r, c.g, c.b);
 };
 
+/**
+ * Concrete kerb along the asphalt roads (3D kerbs in edges.ts and the painted band under them). Duller than
+ * PAL.curb so kerb + open drain read as one verge, not as a pair of bright rails.
+ */
+export const KERB = 0xa09a8e, KERB_DARK = 0x8c867b;
+
 /** 1 while the iso (diorama) camera is active, 0 in the chase camera. Written by <Ground/> every frame. */
 export const uIso = uniform(1);
 

@@ -9,6 +9,11 @@
 //           pulls in when a wall is in the way (instantly) and eases back out (slowly). Thin things — tree
 //           trunks, lamp posts, poles — don't pull it in (it used to end up a metre behind the boy's head
 //           whenever a tree stood behind him); it passes them and they dissolve near the lens instead.
+//           Backed right up against something (the bus, a house wall) there is no room behind him, so the
+//           camera climbs over his head and looks down past him instead of sinking into the wall.
+//           While he walks it settles behind him at a default pitch — a little flatter on the viewpoint
+//           or looking north, so the Dhauladhar snow isn't a thin band along the top of the screen.
+// New game snaps it back to the spawn (no glide across town under the title).
 // Writes game.cam, U.viewDir, U.artPx and U.nearCut every frame (priority -2: after the player, before render).
 import { useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
@@ -18,8 +23,9 @@ import { input } from '../core/input';
 import { U } from '../core/uniforms';
 import { collision, type Collider } from '../core/collision';
 import { groundY } from '../world/terrain';
-import { clamp, damp, dampAngle } from '../core/math';
-import { G, useGame } from '../game/store';
+import { PLAZAS } from '../world/layout';
+import { angleDelta, clamp, damp, dampAngle, smooth } from '../core/math';
+import { G, onReset, useGame } from '../game/store';
 import { view } from './view';
 import { debug } from '../game/debug';
 
@@ -30,6 +36,18 @@ const ZOOMS = [0.62, 0.78, 1, 1.25, 1.6];
 /** Seconds for a 90° iso turn and for one zoom step. */
 const TURN_T = 0.5, ZOOM_T = 0.28;
 const CHASE_FOV = 52;
+/** Chase pitch the camera settles to while he walks, and the flatter one where the snow range is the view. */
+const CHASE_PITCH = 0.3, VIEW_PITCH = 0.2;
+const VIEWPOINT = PLAZAS.find((p) => p.id === 'viewpoint')?.rect ?? [0, 0, 0, 0];
+/** Pressed against a wall: the camera rises toward this pitch, this far from his head. */
+const LIFT_PITCH = 1.45, LIFT_DIST = 1.15, MIN_DIST = 0.35;
+
+function chasePitchFor(x: number, z: number, camYaw: number) {
+  const [x0, z0, x1, z1] = VIEWPOINT;
+  const onViewpoint = x > x0 - 1 && x < x1 + 1 && z > z0 - 1 && z < z1 + 1;
+  // the camera sits at (sin yaw, cos yaw) from his head, so it looks north (-z) when yaw ≈ 0
+  return onViewpoint || Math.abs(angleDelta(0, camYaw)) < 0.8 ? VIEW_PITCH : CHASE_PITCH;
+}
 
 const easeInOut = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
 const easeOut = (k: number) => 1 - (1 - k) ** 3;
@@ -39,29 +57,50 @@ const _right = new Vector3(), _up = new Vector3(), _p = new Vector3(), _fwd = ne
 const _cq: Collider[] = [];
 const _look = new Vector3();
 
+/** Horizontal distance from (x, z) to a collider's footprint (0 inside), or Infinity for the thin ones —
+ *  trunks, posts, poles — that the chase camera passes: occludable surfaces dissolve near the lens and along
+ *  the line to the boy, so passing them reads better than snapping onto his head. */
+function solidDist(c: Collider, x: number, z: number): number {
+  if (c.kind === 'circle') return c.r < 0.5 ? Infinity : Math.max(0, Math.hypot(x - c.x, z - c.z) - c.r);
+  if (c.w < 0.5 && c.d < 0.5) return Infinity;
+  const cs = Math.cos(c.rot), sn = Math.sin(c.rot), dx = x - c.x, dz = z - c.z;
+  const lx = Math.abs(dx * cs - dz * sn) - c.w / 2, lz = Math.abs(dx * sn + dz * cs) - c.d / 2;
+  return Math.hypot(Math.max(lx, 0), Math.max(lz, 0));
+}
+
 /** Fraction (0..1) of the segment a→b the chase camera can travel before the ground or a solid collider gets
- *  within `pad`. Thin colliders (trunks, posts, poles) are ignored: occludable surfaces dissolve near the lens
- *  and along the line to the boy, so passing them reads better than snapping onto his head. */
-function cameraSegment(ax: number, ay: number, az: number, bx: number, by: number, bz: number, pad: number): number {
-  const steps = Math.ceil(Math.hypot(bx - ax, by - ay, bz - az) / 0.25) + 1;
+ *  within `pad`, sampled every `step` metres. */
+function cameraSegment(ax: number, ay: number, az: number, bx: number, by: number, bz: number, pad: number, step = 0.25): number {
+  const steps = Math.ceil(Math.hypot(bx - ax, by - ay, bz - az) / step) + 1;
   for (let s = 1; s <= steps; s++) {
     const t = s / steps;
     const x = ax + (bx - ax) * t, y = ay + (by - ay) * t, z = az + (bz - az) * t;
     if (y < groundY(x, z) + pad) return (s - 1) / steps;
     for (const c of collision.query(x, z, pad, _cq)) {
       if (y < c.y0 - pad || y > c.y1 + pad) continue;
-      if (c.kind === 'circle') {
-        if (c.r < 0.5) continue;
-        if (Math.hypot(x - c.x, z - c.z) < c.r + pad) return (s - 1) / steps;
-      } else {
-        if (c.w < 0.5 && c.d < 0.5) continue;
-        const cs = Math.cos(c.rot), sn = Math.sin(c.rot), dx = x - c.x, dz = z - c.z;
-        const lx = Math.abs(dx * cs - dz * sn) - c.w / 2, lz = Math.abs(dx * sn + dz * cs) - c.d / 2;
-        if (Math.hypot(Math.max(lx, 0), Math.max(lz, 0)) < pad) return (s - 1) / steps;
-      }
+      if (solidDist(c, x, z) < pad) return (s - 1) / steps;
     }
   }
   return 1;
+}
+
+/** Underside of the lowest solid right over (x, z) that comes down to within `pad` of height y but stays
+ *  clear of the boy (a stall awning, a low eave); Infinity when there is none. */
+function roofOver(x: number, y: number, z: number, feetY: number, pad: number): number {
+  let roof = Infinity;
+  for (const c of collision.query(x, z, pad, _cq)) {
+    if (c.y0 < feetY + 1.0 || c.y0 > y + pad || c.y1 < y - pad) continue;
+    if (solidDist(c, x, z) < pad) roof = Math.min(roof, c.y0);
+  }
+  return roof;
+}
+
+/** Chase camera straight behind the boy at the default pitch, nothing pulled in. */
+function behindBoy(st: { chaseK: number; close: number; lift: number; drop: number }) {
+  const pl = game.player;
+  game.cam.yaw = pl.yaw + Math.PI;
+  game.cam.pitch = chasePitchFor(pl.pos.x, pl.pos.z, game.cam.yaw);
+  st.chaseK = 1; st.close = 0; st.lift = 0; st.drop = 0;
 }
 
 /** A fixed-length ease from `from` to `to`; `t` runs 0 → 1. */
@@ -90,7 +129,7 @@ export function CameraRig() {
     const zoomIdx = clamp(debug.zoom ?? 2, 0, ZOOMS.length - 1);
     game.cam.azimuth = az;
     return {
-      targetAz: az, zoomIdx, chaseDist: 5.2, chaseK: 1, close: 0, lastDrag: -10, dragAcc: 0, init: false, title: false,
+      targetAz: az, zoomIdx, chaseDist: 5.2, chaseK: 1, close: 0, lift: 0, drop: 0, lastDrag: -10, dragAcc: 0, init: false, title: false,
       turn: { from: az, to: az, t: 1, dur: TURN_T, ease: easeInOut } as Tween,
       zoom: { from: ZOOMS[zoomIdx], to: ZOOMS[zoomIdx], t: 1, dur: ZOOM_T, ease: easeOut } as Tween,
     };
@@ -99,14 +138,13 @@ export function CameraRig() {
   useEffect(() => {
     const cam = mode === 'iso' ? cams.iso : cams.chase;
     game.cam.mode = mode;
-    if (mode === 'chase') {
-      // start behind the boy
-      game.cam.yaw = game.player.yaw + Math.PI;
-      game.cam.pitch = 0.3;
-      st.chaseK = 1; st.close = 0;
-    }
+    if (mode === 'chase') behindBoy(st);
     set({ camera: cam });
   }, [mode, cams, set, st]);
+
+  // New game puts Tenzin back on the square: jump there with him on the next frame (after newGame() has
+  // moved him) rather than gliding across town under the fading-in title
+  useEffect(() => onReset(() => { st.init = false; }), [st]);
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
@@ -117,7 +155,10 @@ export function CameraRig() {
 
     // shared target: the boy's chest, eased, with a small lead in the walking direction
     _goal.set(p.x + game.player.vel.x * 0.18, p.y + 0.9, p.z + game.player.vel.z * 0.18);
-    if (!st.init) { game.cam.target.copy(_goal); st.init = true; }
+    if (!st.init) {
+      game.cam.target.copy(_goal); st.init = true;
+      if (game.cam.mode === 'chase') behindBoy(st);
+    }
     game.cam.target.x = damp(game.cam.target.x, _goal.x, 6, dt);
     game.cam.target.y = damp(game.cam.target.y, _goal.y, 4, dt);
     game.cam.target.z = damp(game.cam.target.z, _goal.z, 6, dt);
@@ -206,28 +247,56 @@ export function CameraRig() {
       if (input.take('rotL')) game.cam.yaw -= Math.PI / 4;
       if (input.take('rotR')) game.cam.yaw += Math.PI / 4;
       if (dragging) st.lastDrag = game.time;
-      // drift back behind the boy while he walks and nobody is steering the camera
+      // drift back behind the boy, and to the default pitch, while he walks and nobody is steering the camera
       if (game.time - st.lastDrag > 1.6 && game.player.speed > 0.5) {
-        game.cam.yaw = dampAngle(game.cam.yaw, game.player.yaw + Math.PI, 1.6 * Math.min(1, game.player.speed / 3), dt);
+        const walk = Math.min(1, game.player.speed / 3);
+        game.cam.yaw = dampAngle(game.cam.yaw, game.player.yaw + Math.PI, 1.6 * walk, dt);
+        game.cam.pitch = damp(game.cam.pitch, chasePitchFor(p.x, p.z, game.cam.yaw), 1.2 * walk, dt);
       }
       const yaw = game.cam.yaw, pitch = game.cam.pitch;
+      const sy = Math.sin(yaw), cy = Math.cos(yaw);
       const head = _p.set(t.x, t.y + 0.55, t.z);
+      // under a stall awning or a low eave the pivot itself would sit inside it (and every test below would
+      // fail at once): keep it just under the underside — at once going in, easing back coming out
+      const roof = roofOver(head.x, head.y, head.z, p.y, 0.15);
+      const drop = roof < Infinity ? Math.max(0, head.y - (roof - 0.15)) : 0;
+      st.drop = drop > st.drop ? drop : damp(st.drop, drop, 4, dt);
+      head.y -= st.drop;
       const d = st.chaseDist;
-      const cx = head.x + Math.sin(yaw) * Math.cos(pitch) * d;
-      const cy = head.y + Math.sin(pitch) * d;
-      const cz = head.z + Math.cos(yaw) * Math.cos(pitch) * d;
       // walls pull the camera in at once; when they clear it eases back out, so passing a pole or a doorway
       // doesn't make the view jump in and out
-      const f = cameraSegment(head.x, head.y, head.z, cx, cy, cz, 0.25);
+      const f = cameraSegment(head.x, head.y, head.z,
+        head.x + sy * Math.cos(pitch) * d, head.y + Math.sin(pitch) * d, head.z + cy * Math.cos(pitch) * d, 0.25);
       st.chaseK = f < st.chaseK ? f : damp(st.chaseK, f, 2.5, dt);
-      const k = Math.max(0.18, st.chaseK);
-      cam.position.set(head.x + (cx - head.x) * k, head.y + (cy - head.y) * k, head.z + (cz - head.z) * k);
+      const reach = st.chaseK * d;
+      // no room behind him (his back to the bus or a wall): instead of sinking into the wall — or into his
+      // hair — the camera climbs over his head toward LIFT_PITCH and looks down past him
+      const liftGoal = clamp((1.4 - reach) / 1.1, 0, 1);
+      st.lift = damp(st.lift, liftGoal, liftGoal > st.lift ? 12 : 3, dt);
+      const lift = smooth(0, 1, st.lift);
+      let pe = pitch, r = reach;
+      if (lift > 0.001) {
+        pe = pitch + (Math.max(pitch, LIFT_PITCH) - pitch) * lift;
+        const want = Math.max(reach, LIFT_DIST), ce = Math.cos(pe), se = Math.sin(pe);
+        r = want * cameraSegment(head.x, head.y, head.z, head.x + sy * ce * want, head.y + se * want, head.z + cy * ce * want, 0.12, 0.1);
+        if (r < MIN_DIST) {
+          // an awning or a roof just over him as well: take whichever way has more room, flat or lifted
+          const cf = Math.cos(pitch), sf = Math.sin(pitch);
+          const r0 = want * cameraSegment(head.x, head.y, head.z, head.x + sy * cf * want, head.y + sf * want, head.z + cy * cf * want, 0.12, 0.1);
+          if (r0 > r) { r = r0; pe = pitch; }
+        }
+        r = Math.max(r, 0.12);
+      }
+      const ce = Math.cos(pe) * r;
+      cam.position.set(head.x + sy * ce, head.y + Math.sin(pe) * r, head.z + cy * ce);
       cam.aspect = rtAspect;
       // pulled in close (a wall or a big trunk behind him): look a little over and past the boy, so his head
-      // doesn't fill the screen and you can still see where he is going
-      st.close = damp(st.close, clamp((0.6 - k) / 0.42, 0, 1), 5, dt);
-      const close = st.close;
-      _look.set(head.x - Math.sin(yaw) * close * 1.4, head.y + close * 0.45, head.z - Math.cos(yaw) * close * 1.4);
+      // doesn't fill the screen and you can still see where he is going; lifted over him, look down just
+      // past him so he stays at the bottom of the frame
+      st.close = damp(st.close, clamp((0.6 - st.chaseK) / 0.42, 0, 1), 5, dt);
+      const over = st.close * (1 - lift);
+      const ahead = over * 1.4 + lift * 0.5 * Math.min(1, r / LIFT_DIST), up = over * 0.45 - lift * 0.1;
+      _look.set(head.x - sy * ahead, head.y + up, head.z - cy * ahead);
       cam.lookAt(_look);
       cam.updateProjectionMatrix();
       cam.updateMatrixWorld();

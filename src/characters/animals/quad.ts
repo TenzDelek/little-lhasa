@@ -17,6 +17,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Parts, type V3 } from '../../core/geom';
 import { partsMaterial } from '../../core/materials';
 import { clamp, damp, lerp, TAU } from '../../core/math';
+import { skipWhenHidden } from '../cull';
 
 export const QBONES = [
   'root', 'hips', 'barrel', 'tail0', 'tail1', 'tail2', 'tail3',
@@ -113,6 +114,7 @@ export function assembleQuad(qp: QuadParts, dims: QDims, rest: Partial<Record<QB
 
   const root = new Group();
   root.add(mesh);
+  skipWhenHidden(root); // owners hide animals that are off screen: no bone matrices for them until they show
   const R = new Float32Array(NB * 3);
   for (const [k, v] of Object.entries(rest)) { const i = QI[k as QBone] * 3; R[i] = v![0]; R[i + 1] = v![1]; R[i + 2] = v![2]; }
   // start in the rest pose
@@ -372,6 +374,10 @@ export function animateQuad(q: QuadRig, a: QuadAnim) {
   const sb = 1 + Math.sin(t * br) * ba;
   bones.barrel.scale.set(sb, sb, 1);
 }
+
+/** Animation step for the first frame an animal shows again after being culled: long enough for every
+ *  posture blend to settle, so it appears already in its current pose (no slow sit-down on screen). */
+export const CATCH_UP_DT = 3;
 
 /** Restore everything to the rest pose immediately (e.g. after a teleport). */
 export function snapQuad(q: QuadRig) {

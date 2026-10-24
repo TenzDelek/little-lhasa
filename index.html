@@ -6,6 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#f6f3ea" />
     <title>Little Lhasa — a walk through McLeod Ganj</title>
+    <script>
+      // a saved night walk (or ?night=1) starts on night paper, so the caption shown before React loads
+      // (index.css #root:empty) isn't a flash of cream; the HUD takes the theme over once it mounts
+      try {
+        var q = new URLSearchParams(location.search);
+        var save = q.get('shot') === '1' ? null : JSON.parse(localStorage.getItem('little-lhasa-save-v1') || 'null');
+        if (q.get('night') === '1' || (save && save.state && save.state.night === true)) {
+          document.documentElement.dataset.scene = 'night';
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0e1220');
+        }
+      } catch (e) { /* no storage: day paper */ }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+Tibetan:wght@500;700&family=Silkscreen&family=Young+Serif&display=swap" />

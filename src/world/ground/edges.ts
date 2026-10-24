@@ -10,6 +10,7 @@ import { ROADS, roadLength, roadFrame, type Road } from '../layout';
 import { groundY } from '../terrain';
 import { railing } from '../../kit/street';
 import { sampleFields, type FieldSample } from './fields';
+import { KERB } from './shade';
 
 const KERB_W = 0.18, KERB_H = 0.1;
 
@@ -90,7 +91,7 @@ export function buildEdges(): EdgeBuild {
         const paint = nearEnds || hsec > 0.82 ? 'yb' : hsec < 0.1 ? 'wb' : '';
         const ya = groundY(a[0], a[1]) - 0.04, yb = groundY(b[0], b[1]) - 0.04;
         if (!paint) {
-          spanBox(parts, [a[0], a[1]], [b[0], b[1]], KERB_W, KERB_H + 0.04, ya, yb, r() < 0.12 ? PAL.concreteDark : PAL.curb, 0.03);
+          spanBox(parts, [a[0], a[1]], [b[0], b[1]], KERB_W, KERB_H + 0.04, ya, yb, r() < 0.12 ? PAL.concreteDark : KERB, 0.03);
         } else {
           const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], ym = (ya + yb) / 2;
           const c1 = paint === 'yb' ? PAL.railingYellow : PAL.wallWhite;

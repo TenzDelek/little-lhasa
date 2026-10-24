@@ -107,6 +107,7 @@ export function Player() {
       animateCharacter(rig, { dt, time: game.time, speed, grounded: p.grounded, vy: p.vel.y, action, actionT: p.action?.t });
     }
     U.player.value.copy(p.pos);
+    if (Math.abs(p.pos.y - st.visY) > 1) st.visY = p.pos.y; // teleported while paused (New game): never float
     rig.root.position.set(p.pos.x, st.visY, p.pos.z);
     rig.root.rotation.y = p.yaw;
   }, -5);

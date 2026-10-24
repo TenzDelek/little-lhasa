@@ -55,7 +55,9 @@ export const LOTS: Lot[] = [
     sign: { text: 'BOOKS', bg: 0x3f6f55, fg: 0xf3efe6 } }),
   // ---- west side: guesthouses, 2 storeys -------------------------------------------------------------
   row('W1', 'W', WF, -10.4, -5.3, 7.0, { floors: 2, ground: 'shop', roof: 'tin', roofColor: 0x355f8f, wall: 0xd09a48, seed: 21,
-    sign: { text: 'MOMO CORNER', bod: 'མོག་མོག', bg: 0xe0b23a, fg: 0x6e1f2a } }),
+    // a shawl shop (its front shows shawls); momos are sold only at Tashi's stall on Temple Road, so nothing
+    // on the square advertises them
+    sign: { text: 'SHAWL HOUSE', bg: 0xe0b23a, fg: 0x6e1f2a } }),
   row('W2', 'W', WF, -5.1, 0.3, 7.0, { floors: 2, ground: 'hotel', roof: 'terrace', tanks: 2, wall: 0xeeeae0, seed: 22, tibetan: true, flags: true,
     sign: { text: 'GUEST HOUSE', bod: 'མགྲོན་ཁང་', bg: 0x2f8a4a, fg: 0xf3efe6 } }),
   row('W3', 'W', WF, 0.5, 4.9, 7.0, { floors: 2, ground: 'shop', roof: 'flat', tanks: 1, wall: 0xd9826a, seed: 23, solar: true,

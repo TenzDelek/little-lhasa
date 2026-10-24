@@ -2,9 +2,23 @@
 // stupas, darchor poles, potted marigolds, benches and lamp posts.
 import { PAL } from '../../core/palette';
 import { bench, pottedPlant, streetLamp } from '../../kit/street';
+import type { DarchorPole } from '../../kit/flags';
 import type { Acc } from './acc';
 import { CY, DEBATE, GALLERY } from './site';
 import { INK, WHITEWASH, chorten, shade } from './util';
+
+/**
+ * Darchor: two big poles flanking the main steps, one by the tree, one in the north-east corner, one SW.
+ * They are drawn without the kit's radiating ground strings (those fell at random across the main steps and
+ * the debate yard at knee height); their lungta are strung from the pole tops to roofs in flags.ts instead.
+ */
+export const DARCHOR: DarchorPole[] = [
+  { x: 5.2, z: 103.9, y: CY, h: 9.5, seed: 11, color: PAL.lungta[3] },
+  { x: 14.8, z: 103.9, y: CY, h: 9.5, seed: 12, color: PAL.lungta[2] },
+  { x: -7.6, z: 96.2, y: CY, h: 7.5, seed: 13, color: PAL.lungta[4] },
+  { x: 26.3, z: 95.6, y: CY, h: 7, seed: 14, color: PAL.lungta[0] },
+  { x: -1.2, z: 124.6, y: CY, h: 7, seed: 15, color: PAL.lungta[1] },
+];
 
 export function buildDressing(acc: Acc) {
   treePlatform(acc);
@@ -20,14 +34,7 @@ export function buildDressing(acc: Acc) {
     const next = cz[i + 1];
     if (next !== undefined && next - z < 5) for (let k = 0; k < 2; k++) acc.box(pottedPlant(acc.small, 27.75 + (k ? 0.5 : -0.5), CY, (z + next) / 2, 300 + i * 2 + k));
   });
-  // darchor: two big poles flanking the main steps, one by the tree, one in the north-east corner, one SW
-  acc.poles.push(
-    { x: 5.2, z: 103.9, y: CY, h: 9.5, seed: 11, color: PAL.lungta[3] },
-    { x: 14.8, z: 103.9, y: CY, h: 9.5, seed: 12, color: PAL.lungta[2] },
-    { x: -7.6, z: 96.2, y: CY, h: 7.5, seed: 13, color: PAL.lungta[4] },
-    { x: 26.3, z: 95.6, y: CY, h: 7, seed: 14, color: PAL.lungta[0] },
-    { x: -1.2, z: 124.6, y: CY, h: 7, seed: 15, color: PAL.lungta[1] },
-  );
+  acc.poles.push(...DARCHOR);
 
   // prostration boards on the court in front of the main hall, a shoe rack by the steps
   for (const [x, z] of [[1.8, 105.6], [1.8, 108.2], [18.4, 106.2], [18.4, 108.8]] as const) {
@@ -76,31 +83,34 @@ function treePlatform(acc: Acc) {
     S.box(R * 2 * 0.85, 0.08, R * 2 * 0.85, [0, H + 0.04, 0], WHITEWASH);
     S.box(R * 2 * 0.86, 0.06, R * 2 * 0.86, [0, H - 0.08, 0], PAL.templeMaroon);
   });
-  // trunk: a fat gnarled bole that splits into branches (canopy is Tree.tsx)
+  // trunk: a fat gnarled bole that splits into branches (canopy is Tree.tsx). It goes in the occluding bucket
+  // with the khatas wrapped round it, so it dissolves like the canopy when it hides the boy or fills the
+  // chase camera's lens
+  const T = acc.big;
   const bark = PAL.bark, barkL = PAL.barkLight;
-  S.cyl(0.55, 0.75, 1.6, [tx, CY + H, tz], bark, 8);
-  S.cyl(0.62, 0.62, 0.5, [tx + 0.1, CY + H + 0.3, tz - 0.1], barkL, 7);
+  T.cyl(0.55, 0.75, 1.6, [tx, CY + H, tz], bark, 8);
+  T.cyl(0.62, 0.62, 0.5, [tx + 0.1, CY + H + 0.3, tz - 0.1], barkL, 7);
   const branches: [number, number, number, number][] = [[0.6, 0.4, 0.5, 3.4], [-0.7, 0.2, -0.45, 3.0], [0.1, -0.7, 0.55, 3.2], [-0.2, 0.75, -0.5, 2.8]];
   for (const [dx, dz, lean, len] of branches) {
     const yaw = Math.atan2(dx, dz);
-    S.groupEuler([tx + dx * 0.4, CY + H + 1.4, tz + dz * 0.4], [0, yaw, 0], () => {
-      S.groupEuler([0, 0, 0], [Math.abs(lean), 0, 0], () => S.cyl(0.18, 0.32, len, [0, 0, 0], bark, 6));
+    T.groupEuler([tx + dx * 0.4, CY + H + 1.4, tz + dz * 0.4], [0, yaw, 0], () => {
+      T.groupEuler([0, 0, 0], [Math.abs(lean), 0, 0], () => T.cyl(0.18, 0.32, len, [0, 0, 0], bark, 6));
     });
   }
-  // roots spreading over the platform
+  // roots spreading over the platform (cut with the trunk, so no bare spokes are left when it dissolves)
   for (let i = 0; i < 6; i++) {
     const a = i * 1.05 + 0.3;
-    S.groupEuler([tx + Math.sin(a) * 0.7, CY + H + 0.05, tz + Math.cos(a) * 0.7], [0, a, 0], () => S.box(0.22, 0.14, 0.9, [0, 0, 0.2], barkL));
+    T.groupEuler([tx + Math.sin(a) * 0.7, CY + H + 0.05, tz + Math.cos(a) * 0.7], [0, a, 0], () => T.box(0.22, 0.14, 0.9, [0, 0, 0.2], barkL));
   }
   // khatas tied round the trunk, and a few hanging from the low branches
-  const F = acc.fine;
-  F.cyl(0.78, 0.8, 0.12, [tx, CY + H + 1.0, tz], 0xf4f1e8, 10);
+  T.cyl(0.78, 0.8, 0.12, [tx, CY + H + 1.0, tz], 0xf4f1e8, 10);
   for (let i = 0; i < 7; i++) {
     const a = i * 0.9;
-    F.groupEuler([tx + Math.sin(a) * 0.8, CY + H + 0.7, tz + Math.cos(a) * 0.8], [0.15, a, 0.1], () => F.box(0.14, 0.6, 0.02, [0, 0, 0], i % 3 ? 0xf4f1e8 : 0xe9e2c8));
+    T.groupEuler([tx + Math.sin(a) * 0.8, CY + H + 0.7, tz + Math.cos(a) * 0.8], [0.15, a, 0.1], () => T.box(0.14, 0.6, 0.02, [0, 0, 0], i % 3 ? 0xf4f1e8 : 0xe9e2c8));
   }
-  for (const [dx, dz] of [[1.6, 1.0], [-1.7, 0.4], [0.4, -1.8]]) F.box(0.12, 0.7, 0.02, [tx + dx, CY + H + 2.4, tz + dz], 0xf4f1e8);
+  for (const [dx, dz] of [[1.6, 1.0], [-1.7, 0.4], [0.4, -1.8]]) T.box(0.12, 0.7, 0.02, [tx + dx, CY + H + 2.4, tz + dz], 0xf4f1e8);
   // small offerings on the platform: butter-lamp cups, a water bowl row, incense sticks
+  const F = acc.fine;
   for (let i = 0; i < 5; i++) {
     F.cyl(0.05, 0.04, 0.05, [tx - 0.5 + i * 0.25, CY + H + 0.08, tz + 1.3], PAL.khorloCopper, 6);
   }
@@ -115,8 +125,11 @@ function debatePlatform(acc: Acc) {
   const x0 = -0.6, x1 = 4.4, z0 = 100.8, z1 = 102.6, h = 0.22;
   S.box(x1 - x0, h, z1 - z0, [(x0 + x1) / 2, CY + h / 2, (z0 + z1) / 2], shade(PAL.stoneStep, -0.04));
   S.box(x1 - x0 + 0.06, 0.04, z1 - z0 + 0.06, [(x0 + x1) / 2, CY + h, (z0 + z1) / 2], shade(PAL.stoneStep, 0.12));
-  // cushions for the seated defenders
-  for (let i = 0; i < 5; i++) S.box(0.55, 0.1, 0.55, [x0 + 0.6 + i * 0.95, CY + h + 0.07, (z0 + z1) / 2 + 0.3], i % 2 ? PAL.monkMaroon : PAL.monkMaroonDark);
+  // cushions only where the three defenders sit (src/characters/npcs/cast.ts: x = 0, 1.9, 3.8, z = 102),
+  // plus a spare pair stacked at the back between two seats
+  for (const x of [0, 1.9, 3.8]) S.box(0.55, 0.1, 0.55, [x, CY + h + 0.07, 102.0], PAL.monkMaroonDark);
+  S.box(0.5, 0.08, 0.34, [2.85, CY + h + 0.06, 102.36], PAL.monkMaroon);
+  S.box(0.46, 0.08, 0.3, [2.87, CY + h + 0.14, 102.37], PAL.monkMaroonDark);
   acc.box({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, w: x1 - x0, d: z1 - z0, y0: CY - 0.2, y1: CY + h, tag: 'platform' });
 }
 

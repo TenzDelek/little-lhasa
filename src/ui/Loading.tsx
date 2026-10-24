@@ -1,6 +1,8 @@
 // Loading state (Gorshey's "Lighting the fire…", here five pixel butter lamps that catch one by one) shown
 // on plain paper until store.ready — the world has built and rendered its first frames — then it fades away
 // to reveal the town and the title. index.css shows the same caption on #root:empty before React mounts.
+// If the 3D view fails (store.renderError: no renderer, a lost GPU, a crashed scene) the lamps stay cold and a
+// short note says what to try, over the town even after it was ready.
 import { useEffect, useState } from 'react';
 import { useGame } from '../game/store';
 import { runs, type Grid } from './pixels';
@@ -60,8 +62,16 @@ function Lamp() {
   );
 }
 
+/** What to say when the 3D view fails (store.renderError). */
+const FAILED = {
+  start: 'This browser couldn’t start the 3D view. A recent Chrome or Edge should work — or try reloading.',
+  lost: 'The graphics card stopped answering. Reloading the page should light them again.',
+  crash: 'Something went wrong drawing the town. Reloading the page should fix it.',
+};
+
 export function Loading() {
   const ready = useGame((s) => s.ready);
+  const failed = useGame((s) => s.renderError);
   const [gone, setGone] = useState(ready);
   const [slow, setSlow] = useState(0);
 
@@ -72,15 +82,17 @@ export function Loading() {
     return () => { clearTimeout(s1); clearTimeout(s2); };
   }, [ready]);
 
-  if (gone) return null;
+  // a failure comes back over the town even after it was ready (a lost GPU mid-walk)
+  if (gone && !failed) return null;
+  const done = ready && !failed;
   return (
-    <div className={`loading${ready ? ' is-done' : ''}`} role="status" aria-live="polite" aria-busy={!ready}>
+    <div className={`loading${done ? ' is-done' : ''}${failed ? ' is-failed' : ''}`} role={failed ? 'alert' : 'status'} aria-live="polite" aria-busy={!ready && !failed}>
       <div className="loading-in">
         <div className="lamps" aria-hidden="true">
           <Lamp /><Lamp /><Lamp /><Lamp /><Lamp />
         </div>
-        <p className="loading-text">{ready ? 'The lamps are lit' : 'Lighting the butter lamps…'}</p>
-        {slow > 0 && !ready && (
+        <p className="loading-text">{failed ? 'The lamps won’t light' : ready ? 'The lamps are lit' : 'Lighting the butter lamps…'}</p>
+        {failed ? <p className="loading-note">{FAILED[failed]}</p> : slow > 0 && !ready && (
           <p className="loading-note">
             {slow === 1
               ? 'The whole town is being built — the first visit takes a little longer.'

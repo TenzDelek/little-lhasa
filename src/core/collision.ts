@@ -147,9 +147,10 @@ class CollisionWorld {
 
   /**
    * Push a cylinder (feet at feetY, height h) out of every collider whose vertical span overlaps
-   * (feetY + stepUp, feetY + h). Mutates p.x / p.z. Returns true if anything was hit.
+   * (feetY + stepUp, feetY + h). Mutates p.x / p.z. Returns true if anything was hit. `dynamics` = false
+   * leaves the moving bodies out (static town only).
    */
-  resolve(p: { x: number; z: number }, r: number, feetY: number, h: number, stepUp: number): boolean {
+  resolve(p: { x: number; z: number }, r: number, feetY: number, h: number, stepUp: number, dynamics = true): boolean {
     let hit = false;
     const lo = feetY + stepUp, hi = feetY + h;
     for (let iter = 0; iter < 4; iter++) {
@@ -161,7 +162,7 @@ class CollisionWorld {
         const pen = k.inside ? k.depth + r : r + k.depth; // depth is negative distance when outside
         if (pen > 0) { p.x += k.nx * pen; p.z += k.nz * pen; moved = hit = true; }
       }
-      for (const c of this.dynamic) {
+      if (dynamics) for (const c of this.dynamic) {
         if (c.y1 <= lo || c.y0 >= hi) continue;
         let dx = p.x - c.x, dz = p.z - c.z;
         if (dx * dx + dz * dz < 1e-12) { dx = 1e-6; dz = 0; }
@@ -226,8 +227,12 @@ class CollisionWorld {
     return y;
   }
 
-  /** Segment test for camera collision: returns the fraction [0, 1] along a→b of the first hit. */
-  segment(ax: number, ay: number, az: number, bx: number, by: number, bz: number, pad = 0.2): number {
+  /**
+   * Segment test for camera collision: returns the fraction [0, 1] along a→b of the first hit (sampled every
+   * 0.5 m). `minSize` (m, optional) lets thin things through: colliders whose footprint is narrower than that
+   * in both directions (posts, poles, lamp standards) are ignored.
+   */
+  segment(ax: number, ay: number, az: number, bx: number, by: number, bz: number, pad = 0.2, minSize = 0): number {
     let best = 1;
     const steps = Math.ceil(Math.hypot(bx - ax, bz - az) / 0.5) + 1;
     for (let s = 1; s <= steps; s++) {
@@ -236,6 +241,7 @@ class CollisionWorld {
       if (y < groundY(x, z) + pad) return Math.max(0, (s - 1) / steps);
       for (const c of this.query(x, z, pad, _q)) {
         if (y < c.y0 - pad || y > c.y1 + pad) continue;
+        if (minSize > 0 && (c.kind === 'circle' ? 2 * c.r : Math.max(c.w, c.d)) < minSize) continue;
         const k = closest(c, x, z);
         if (k.inside || -k.depth < pad) { best = Math.max(0, (s - 1) / steps); return best; }
       }

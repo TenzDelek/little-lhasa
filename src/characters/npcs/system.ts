@@ -5,6 +5,7 @@
 // bubble. At night most townsfolk go home (hidden while out of view, or quickly when the switch happens).
 import { Frustum, Group, Matrix4, Sphere, Vector3, type Camera } from 'three';
 import { buildCharacter, animateCharacter, type Action, type AnimInput, type Rig } from '../rig';
+import { skipWhenHidden } from '../cull';
 import { collision, type CircleCollider } from '../../core/collision';
 import { interactions } from '../../core/interact';
 import { game } from '../../core/game';
@@ -60,6 +61,7 @@ export interface Npc extends BubbleOwner {
 const _pt: RoutePoint = { x: 0, z: 0, y: 0, tx: 0, tz: 1, nx: -1, nz: 0 };
 const _anim: AnimInput = { dt: 0, time: 0, speed: 0, grounded: true, vy: 0, action: null, actionT: 0, lookYaw: 0, lookPitch: 0, seatY: undefined };
 const _hit = { f: 1, push: 0 };
+const _push = { x: 0, z: 0 };
 const _frustum = new Frustum(), _pv = new Matrix4(), _v = new Vector3(), _sph = new Sphere(new Vector3(), 2.2);
 
 const rnd = Math.random;
@@ -98,6 +100,7 @@ export class NpcSystem {
     for (const def of CAST) {
       const rig = buildCharacter(def.spec);
       rig.root.name = `npc:${def.id}`;
+      skipWhenHidden(rig.root); // culled people (off screen / far / gone home) skip their bones' matrix pass
       const route = def.route ? this.routes[def.route] ?? null : null;
       const n: Npc = {
         def, rig, x: 0, y: 0, z: 0, yaw: 0, visY: 0,
@@ -128,7 +131,8 @@ export class NpcSystem {
     this.rebuild();
     for (const n of this.npcs) this.place(n, true);
     this.positionWalkers(0);
-    for (const n of this.npcs) n.visY = n.y;
+    // talk prompts start where the people are (update() keeps them there; never at the origin)
+    for (const n of this.npcs) { n.visY = n.y; n.ipos.set(n.x, n.y, n.z); }
   }
 
   // ---- static extras: cushions for the seated debaters (unless the temple has its own), Amala's bench if
@@ -219,7 +223,7 @@ export class NpcSystem {
         radius,
         label: def.label,
         // quest givers win over anything else in reach; vendors compete fairly with their own stall's "Buy …"
-        priority: def.id === NPC_IDS.pema || def.id === NPC_IDS.amala ? 2 : def.idleAct === 'talk' || def.idleAct === 'give' ? 1 : 0,
+        priority: def.priority ?? (def.id === NPC_IDS.pema || def.id === NPC_IDS.amala ? 2 : def.idleAct === 'talk' || def.idleAct === 'give' ? 1 : 0),
         anim: TALK_ANIM_WAVE.has(def.kind) ? 'wave' : 'talk',
         enabled: () => n.active,
         onInteract: () => this.talk(n),
@@ -412,6 +416,15 @@ export class NpcSystem {
       if (n.def.mode !== 'walk' || !n.route) continue;
       n.side = damp(n.side, n.sideTarget, 3.5, dt);
       sample(n.route, n.s, n.lateral + n.side, _pt);
+      // the route line is clear of the town, but a pair's lateral offset or a side-step (for Tenzin, a dog)
+      // can reach into a stall, a parked car or a post: keep the body out of solid things (not each other)
+      if (n.active) {
+        _push.x = _pt.x; _push.z = _pt.z;
+        if (collision.resolve(_push, 0.22, _pt.y, 1.75, 0.42, false)) {
+          _pt.y += groundY(_push.x, _push.z) - groundY(_pt.x, _pt.z);
+          _pt.x = _push.x; _pt.z = _push.z;
+        }
+      }
       n.x = _pt.x; n.z = _pt.z; n.y = _pt.y;
       n.tx = _pt.tx; n.tz = _pt.tz; n.nx = _pt.nx; n.nz = _pt.nz;
     }

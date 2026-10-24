@@ -15,22 +15,38 @@ export const LANE_STALLS: readonly [number, number] = [6.0, 21.4];
 
 export interface RoadDist { centre: number; edge: number; s: number; lateral: number }
 
+/** Per road: its segments as flat [ax, az, dx, dz, L, L², arc length at a] runs (built once). */
+const SEGS = new WeakMap<Road, Float64Array>();
+function segsOf(road: Road): Float64Array {
+  let g = SEGS.get(road);
+  if (!g) {
+    g = new Float64Array((road.pts.length - 1) * 7);
+    let acc = 0;
+    for (let i = 1; i < road.pts.length; i++) {
+      const [ax, az] = road.pts[i - 1], [bx, bz] = road.pts[i];
+      const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz);
+      g.set([ax, az, dx, dz, L, L * L, acc], (i - 1) * 7);
+      acc += L;
+    }
+    SEGS.set(road, g);
+  }
+  return g;
+}
+
 /** Distance from (x, z) to one road: centre-line distance, edge distance, arc length, signed lateral. */
 export function roadDist(road: Road, x: number, z: number): RoadDist {
-  let best: RoadDist | null = null;
-  let acc = 0;
-  for (let i = 1; i < road.pts.length; i++) {
-    const [ax, az] = road.pts[i - 1], [bx, bz] = road.pts[i];
-    const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz);
-    const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / (L * L)));
+  // called tens of thousands of times while the rows are fitted: no allocation until the answer
+  const g = segsOf(road);
+  let bi = -1, bd = 0, bt = 0, bcx = 0, bcz = 0;
+  for (let i = 0; i < g.length; i += 7) {
+    const ax = g[i], az = g[i + 1], dx = g[i + 2], dz = g[i + 3];
+    const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / g[i + 5]));
     const cx = ax + dx * t, cz = az + dz * t;
     const d = Math.hypot(x - cx, z - cz);
-    if (!best || d < best.centre) {
-      best = { centre: d, edge: d - road.width / 2, s: acc + L * t, lateral: ((x - cx) * -dz + (z - cz) * dx) / L };
-    }
-    acc += L;
+    if (bi < 0 || d < bd) { bi = i; bd = d; bt = t; bcx = cx; bcz = cz; }
   }
-  return best!;
+  const L = g[bi + 4];
+  return { centre: bd, edge: bd - road.width / 2, s: g[bi + 6] + L * bt, lateral: ((x - bcx) * -g[bi + 3] + (z - bcz) * g[bi + 2]) / L };
 }
 
 /** A frame in the xz plane: position + yaw (front faces local +z). */

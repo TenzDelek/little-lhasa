@@ -12,13 +12,25 @@
 // the frontage) and stays inside the w × d footprint, except things that hang over the pavement above head
 // height: balconies (0.72 m), chajjas / sunshades, signs, awnings (≈0.55 m) and roof eaves (≈0.35 m).
 // "left" / "right" are as seen from the street, facing the front: right = local +x.
+//
+// Colliders come back tagged (BoxInit.tag): 'building' (the main block, floor to roof slab, over the open shop
+// bays and café porches too: they are not walk-in), 'overhang' + 'plinth' (the recessed strip under the upper
+// floors), 'column', 'step', 'plant', 'railing', and on a reachable roof 'parapet' / 'tank'. 'door' is a marker,
+// not an obstacle: a 1.0 (across) × 0.16 × 2.1 m (floor up) box at the doorway's x, buried 0.06–0.22 m behind
+// the front line (the façade, or the recess line under overhanging floors) inside the 'building' box, so it
+// never touches the player; street dressing (props/furniture) reads it to keep doorways clear. Blank and garage
+// fronts have none.
+//
+// Flat-roof stair-head rooms ("mumty", +2.4 m, often with a tank on top) are a seeded roll of `mumtyChance`
+// (default 20%) on buildings of 2+ storeys and at least 4 × 5 m, and never on a building that fronts a plaza
+// (`plaza`, detected by default); `mumty: true / false` forces it either way.
 import { BufferGeometry, Float32BufferAttribute, type Object3D } from 'three';
 import type { Parts, V3 } from '../core/geom';
 import type { BoxInit } from '../core/collision';
 import type { Lamp } from '../core/lamps';
 import type { Road } from '../world/layout';
 import { roadFrame } from '../world/layout';
-import { groundY } from '../world/terrain';
+import { groundY, plazaQuery } from '../world/terrain';
 import { WALLS, ROOFS, PAL } from '../core/palette';
 import { rng, pick, clamp, type Rng } from '../core/math';
 import { makeSign, signSize, textWidthPx, SIGN_PX, type SignSpec } from './sign';
@@ -81,8 +93,14 @@ export interface BuildingSpec {
   unfinished?: boolean;
   /** Force open concrete stilts (true) or a solid plinth (false) under a floor raised above the ground. */
   stilts?: boolean;
-  /** Stair-head room ("mumty") on a flat roof. */
+  /** Stair-head room ("mumty") on a flat roof: true / false forces it; default a seeded roll of `mumtyChance`. */
   mumty?: boolean;
+  /** Chance of the default stair-head room on a 2+ storey flat roof of at least 4 × 5 m (default 0.2). */
+  mumtyChance?: number;
+  /** The front faces a plaza (square, temple court, viewpoint): no default stair-head room, so the roofline
+   *  round it stays low. Default: detected, true when a point 1.5 m in front of the façade lies within 3 m of a
+   *  plaza (layout PLAZAS). */
+  plaza?: boolean;
   solar?: boolean;
   antenna?: boolean;
   /** Clothes line on the roof / clothes on balcony rails. */
@@ -152,9 +170,20 @@ const BLACK = PAL.chubaBlack;
 const BRICK = shade(PAL.wallTerracotta, 0.92);
 const IRON = 0x3a3d42;
 const LINE = 0.05; // ≈ one art pixel
+/** Flat-roof parapets (m above the roof floor H): tall / low wall, terrace wall, and the coping on top. */
+const PARAPET = { high: 0.9, low: 0.55, terrace: 0.5, coping: 0.06 } as const;
+/**
+ * Highest point of a bare flat roof above its top floor (H = floors × floorH): the tall parapet plus coping.
+ * "Bare" = roof 'flat', tanks 0, and mumty / solar / antenna / clothes / flags / dish / rebar all false; the
+ * seeded roof clutter left (pots, a tarpaulin pile, bricks, damp patches) stays under 0.55 m. Not included:
+ * a hotel's name board, which stands on the parapet of a flat roof (up to H + 1.4). Street builders that cap
+ * heights (the market's sightlines) derive their margins from this.
+ */
+export const FLAT_ROOF_TOP = PARAPET.high + PARAPET.coping;
 
-/** Debug: the section currently being built (the kit showroom tallies triangles per section). */
-export const KIT_DEBUG = { section: '' };
+/** Debug: the section currently being built (the kit showroom tallies triangles per section), and an optional
+ *  log of flat roofs (set `log` to [] before a build to collect where stair-head rooms went). */
+export const KIT_DEBUG: { section: string; log: { x: number; z: number; floors: number; mumty: boolean; plaza: boolean; top: number }[] | null } = { section: '', log: null };
 const sec = (name: string) => { KIT_DEBUG.section = name; };
 
 const HOTEL_NAMES = ['GUEST HOUSE', 'SNOW VIEW', 'HOTEL', 'LODGE', 'HIMALAYA INN', 'KAILASH GH', 'NORLING GH', 'PEACE HOTEL'];
@@ -1030,6 +1059,7 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
     let frontEave = 0, frontEaveDrop = 0;
     const rebar = spec.rebar ?? (unfinished || (roof === 'flat' && ch(0.3)));
     const roofReachable = !!stairs && nF === 1;
+    let dbgMumty: boolean | null = null, dbgPlaza = false;
 
     const tank = (x: number, z: number, base: number, stand: boolean) => {
       let b = base;
@@ -1113,7 +1143,7 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
       const terrace = roof === 'terrace';
       P.slab(bx0 + 0.15, H, zB + 0.15, bx1 - 0.15, H + 0.03, zF - 0.15, pick(r, [PAL.concreteStain, PAL.concreteDark, PAL.wallTerracotta]));
       const noParapet = rebar && ch(0.5);
-      const ph = terrace ? 0.5 : noParapet ? 0 : ch(0.7) ? 0.9 : 0.55;
+      const ph = terrace ? PARAPET.terrace : noParapet ? 0 : ch(0.7) ? PARAPET.high : PARAPET.low;
       const parC = unfinished ? BRICK : storeyCol[nF - 1];
       if (ph > 0) {
         const sides: [number, number, number, number][] = [
@@ -1121,10 +1151,10 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
         ];
         for (const [x0, z0, x1, z1] of sides) {
           P.slab(x0, H, z0, x1, H + ph, z1, parC);
-          P.slab(x0 - 0.03, H + ph, z0 - 0.03, x1 + 0.03, H + ph + 0.06, z1 + 0.03, trim);
-          if (roofReachable) box(x0, z0, x1, z1, H, H + ph + 0.06, 'parapet');
+          P.slab(x0 - 0.03, H + ph, z0 - 0.03, x1 + 0.03, H + ph + PARAPET.coping, z1 + 0.03, trim);
+          if (roofReachable) box(x0, z0, x1, z1, H, H + ph + PARAPET.coping, 'parapet');
         }
-        roofTop = H + ph + 0.06;
+        roofTop = H + ph + PARAPET.coping;
         if (terrace) {
           const rh = 0.5;
           for (const [cx, cz] of [[bx0 + 0.07, zF - 0.07], [bx1 - 0.07, zF - 0.07], [bcx, zF - 0.07], [bx0 + 0.07, 0], [bx1 - 0.07, 0]] as const) {
@@ -1166,7 +1196,13 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
         flagB = [px0 + 0.1, H + 2.6, pz1 - 0.2];
       } else {
         // stair-head room (mumty), tanks, solar heater, dish, antenna, rebar, clothes, flags
-        const hasMumty = (spec.mumty ?? (nF >= 2 && bw >= 4 && d >= 5 && ch(0.45))) && !roofReachable && bw >= 3.4 && d >= 4.2;
+        // the default roll is drawn exactly when it always was, whatever the chance or plaza, so a lower chance
+        // only drops stair-heads (a building keeps its mumty iff its roll < chance) and the rest of the town's
+        // seeded choices stay put
+        const mumtyRoll = spec.mumty === undefined && nF >= 2 && bw >= 4 && d >= 5 ? r() : 1;
+        const plaza = spec.plaza ?? plazaQuery(wX(bcx, zF + 1.5), wZ(bcx, zF + 1.5)).edge < 3;
+        const hasMumty = (spec.mumty ?? (mumtyRoll < (spec.mumtyChance ?? 0.2) && !plaza)) && !roofReachable && bw >= 3.4 && d >= 4.2;
+        dbgMumty = hasMumty; dbgPlaza = plaza;
         let nTanks = spec.tanks ?? (1 + (ch(0.45) ? 1 : 0));
         if (hasMumty) {
           const mw = 2.0, md = 2.5;
@@ -1371,6 +1407,7 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
       else box(bx0, zG, bx1, zF - stepRun, yLow, 0, 'plinth');
     }
 
+    if (dbgMumty !== null) KIT_DEBUG.log?.push({ x: Math.round(at.x * 10) / 10, z: Math.round(at.z * 10) / 10, floors: nF, mumty: dbgMumty, plaza: dbgPlaza, top: Math.round((y + roofTop) * 100) / 100 });
     const dz = zF + 0.35;
     return {
       colliders, lamps, meshes,

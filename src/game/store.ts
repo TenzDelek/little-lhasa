@@ -46,6 +46,9 @@ export interface Toast { id: number; text: string; kind: 'info' | 'quest' | 'mer
 interface Store {
   /** The scene has built and rendered its first frames (show a loading state until then). */
   ready: boolean;
+  /** The 3D view failed: 'start' = no WebGPU / WebGL2 renderer could start, 'lost' = the GPU device was
+   *  lost mid-game, 'crash' = the scene threw. Set by App; ui/Loading.tsx says so kindly. Not saved. */
+  renderError: null | 'start' | 'lost' | 'crash';
   started: boolean;
   paused: boolean;
   muted: boolean;
@@ -112,6 +115,7 @@ export const useGame = create<Store>()(persist((set, get) => ({
   toasts: [],
   ...FRESH,
   ready: false,
+  renderError: null,
   panel: null,
   area: 'Main Square',
 

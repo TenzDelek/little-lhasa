@@ -40,7 +40,8 @@ export function buildHillside(): HillsideBuild {
   // merge
   const meshes: Object3D[] = [];
   const add = (list: Mesh[]) => { for (const m of list) meshes.push(m); };
-  if (c.bld.size) add(c.bld.toMeshes(partsMaterial({ occlude: true }), 48));
+  // buildings in 24 m chunks (fewer triangles drawn past the view edge for a few more draw calls), props in 48 m
+  if (c.bld.size) add(c.bld.toMeshes(partsMaterial({ occlude: true }), 24));
   if (c.props.size) add(c.props.toMeshes(partsMaterial(), 48));
   meshes.push(...mergeSigns(c.meshes));
 

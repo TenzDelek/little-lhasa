@@ -14,7 +14,7 @@ import { mat } from '../../core/materials';
 import { hash12, vnoise12 } from '../../core/tsl';
 import { U } from '../../core/uniforms';
 import { PAL } from '../../core/palette';
-import { C, fieldUV, fields, haze, horizon, pixCell, rimKeep, uIso } from './shade';
+import { C, KERB, KERB_DARK, fieldUV, fields, haze, horizon, pixCell, rimKeep, uIso } from './shade';
 import { fieldTextures } from './fields';
 import { ROADS, roadFrame } from '../layout';
 import { plazaQuery } from '../terrain';
@@ -35,7 +35,7 @@ const K = {
   asph: C(PAL.asphalt), asphL: C(PAL.asphaltLight), asphW: C(PAL.asphaltWorn), asphPatch: C(0x3e3e41),
   asphNew: C(0x38383b), crack: C(0x2b2b2e), oil: C(0x302c2a), pot: C(0x3b3129), potRim: C(0x6a6458),
   puddle: C(0x4b5862), puddleHi: C(0x7d8d99), wet: C(0x3d3f44),
-  curb: C(PAL.curb), curbD: C(0x9d978b), drain: C(PAL.drain), drainDeep: C(0x272524), water: C(0x4a5862),
+  curbD: C(0x9d978b), kerb: C(KERB), kerbD: C(KERB_DARK), drain: C(0x4a4642), drainLip: C(0x322f2c),
   gravel: C(0x8a8476), gravelD: C(0x6f6a60), earth: C(PAL.earth), earthD: C(PAL.earthDark), mud: C(PAL.mud),
   packed: C(0x7f6b52), concrete: C(PAL.concrete), concreteD: C(PAL.concreteDark),
   grass: C(0x55782b), grassDeep: C(PAL.grassDeep), grassLight: C(0x76933a), dry: C(0x9d955a), grassMid: C(0x4a6b26),
@@ -135,17 +135,16 @@ export function terrainMaterial() {
     const offLane = step(0.05, lE).mul(step(0.05, pE));
     col.assign(mix(col, sh, step(0, aE).mul(step(aE, shoulderW)).mul(offLane)));
 
+    // open drain: one mid-dark channel (no stripes inside it: at default zoom stripes read as a railway track),
+    // a 1-px darker lip on the road side under the kerb, the odd bit of rubbish
     const dIn = aE.sub(0.2);
-    const dr = K.drain.toVar();
-    dr.assign(mix(dr, K.drainDeep, step(0.09, dIn).mul(step(dIn, 0.27))));
-    dr.assign(mix(dr, K.water, step(abs(dIn.sub(0.18)), ap.mul(0.8)).mul(th(n2, 0.45, 0.2))));
+    const dr = K.drain.mul(float(1).add(j.mul(0.06))).toVar();
     dr.assign(mix(dr, mix(K.junkBlue, mix(K.junkRed, K.junkWhite, step(0.5, h1)), step(0.33, h1)), step(0.988, h2)));
-    dr.assign(mix(dr, K.curbD, step(dIn, ap.mul(1.1))));            // near lip (under the kerb's shadow)
-    dr.assign(mix(dr, K.curb, step(float(0.36).sub(ap.mul(1.2)), dIn))); // far lip highlight, 1 px
+    dr.assign(mix(dr, K.drainLip, step(dIn, ap.mul(1.1))));
     const drainBand = step(0.5, drain).mul(step(0.2, aE)).mul(step(aE, 0.56)).mul(offLane);
     col.assign(mix(col, dr, drainBand));
     const rural = step(0.18, drain).mul(step(drain, 0.42));
-    col.assign(mix(col, mix(K.curb, K.curbD, step(0.85, h2)), step(0, aE).mul(step(aE, 0.2)).mul(offLane).mul(float(1).sub(rural))));
+    col.assign(mix(col, mix(K.kerb, K.kerbD, step(0.85, h2)), step(0, aE).mul(step(aE, 0.2)).mul(offLane).mul(float(1).sub(rural))));
 
     // ---- asphalt -------------------------------------------------------------------------------------
     const a = K.asph.toVar();

@@ -7,17 +7,19 @@
 //   - outside the main-square box, outside the temple enclosure (+4 m) and everything inside the kora loop
 //   - clear of hillside footprints (buildings, tea shop, viewpoint…)
 //   - no trees (shrubs only) in the ±35° view cone north of the Dhauladhar viewpoint
+//   - no tree crowns over Tashi's yard behind the momo stall, seen from the default iso camera (dropped after
+//     planning, so the rest of the forest stays the same)
 // Density is highest along the kora and on steep ground, patchy elsewhere (low-frequency noise clearings).
 // Trees on the kora's outer side are marked `koraOuter`: once the temple module has registered its kora
 // features (flag poles, chortens, mani piles…), Woodland.tsx keeps them ≥ 4.5 m clear and out from under
 // the lungta fans that run down the hillside.
-import { ROADS } from '../layout';
+import { ROADS, SPOTS } from '../layout';
 import { groundY, worldMask } from '../terrain';
 import { fbm2, hash2, rng, smooth } from '../../core/math';
 import { ENCLOSURE } from '../temple/site';
 import { COURT, KORA, VIEWPOINT, kindDist, obbDist, rectDist, roadDist, type OBB } from './util';
 import type { PlantedTree } from './ctx';
-import type { TreeKind } from './trees';
+import { treeVariants, type TreeKind } from './trees';
 
 export interface TreeInstance {
   kind: TreeKind;
@@ -76,6 +78,40 @@ export function inViewCone(x: number, z: number, pad = 0): boolean {
   const dz = VIEW_CONE.z - z;
   if (dz <= 0) return false;
   return Math.abs(x - VIEW_CONE.x) - pad < dz * VIEW_CONE.tan;
+}
+
+// ---- open yards that must read from the default iso camera ---------------------------------------------
+/** Tashi's yard behind the momo stall (market/yards.ts momoYard: counter-frame local x −2.65..4.15, z −4.6..0;
+ *  local +x runs along the road, +z faces the road). */
+const YARDS: { o: OBB; y: number }[] = (() => {
+  const f = SPOTS.momoStall, c = Math.cos(f.ry), s = Math.sin(f.ry), lx = 0.75, lz = -2.3;
+  const x = f.x + lx * c + lz * s, z = f.z - lx * s + lz * c;
+  return [{ o: { x, z, hw: 3.4, hd: 2.3, yaw: f.ry }, y: groundY(x, z) }];
+})();
+/** Default iso camera: azimuth π/4 (south-east of the boy), 36° up. */
+const ISO_VX = Math.SQRT1_2, ISO_VZ = Math.SQRT1_2, ISO_TAN = Math.tan((36 * Math.PI) / 180);
+const CONIFER: ReadonlySet<TreeKind> = new Set(['deodar', 'deodarMid', 'sapling']);
+
+/**
+ * Does a tree's crown hide one of the YARDS from the default camera? A crown point h above the yard lands on
+ * the yard's ground plane h / tan 36° back from the trunk, away from the camera; the crown hides the yard where
+ * that image overlaps it by more than a little (conifers taper toward the leader, broadleaf crowns sit high).
+ */
+function hidesYard(it: TreeInstance): boolean {
+  const v = treeVariants()[it.kind];
+  const cone = CONIFER.has(it.kind);
+  const h0 = (cone ? v.sway0 : v.h * 0.55) * it.scale, h1 = v.h * it.scale, R = v.canopyR * it.scale;
+  for (const { o, y } of YARDS) {
+    if (Math.hypot(it.x - o.x, it.z - o.z) > 30) continue;
+    for (let k = 0; k <= 8; k++) {
+      const t = k / 8, hgt = it.y + h0 + (h1 - h0) * t - y;
+      if (hgt <= 0) continue;
+      const back = hgt / ISO_TAN;
+      const r = cone ? R * (1 - 0.7 * t) : R * (t < 0.85 ? 1 : 0.7);
+      if (obbDist(o, it.x - ISO_VX * back, it.z - ISO_VZ * back) < r - 0.25) return true;
+    }
+  }
+  return false;
 }
 
 /** Can something stand at (x, z)? `roadGap` = clearance from asphalt edges. */
@@ -252,7 +288,11 @@ export function planForest(foot: OBB[], planted: PlantedTree[], clearings: OBB[]
     push(kind, jx, jz, sc);
   }
 
+  // 3. crowns that would hide the market's open yards from the default camera go (after planning, so the
+  //    rest of the forest and its understory stay exactly as they were)
+  const kept = items.filter((it) => it.fixed || !isTree(it.kind) || !hidesYard(it));
+
   const counts: Record<string, number> = {};
-  for (const it of items) counts[it.kind] = (counts[it.kind] ?? 0) + 1;
-  return { items, counts };
+  for (const it of kept) counts[it.kind] = (counts[it.kind] ?? 0) + 1;
+  return { items: kept, counts };
 }

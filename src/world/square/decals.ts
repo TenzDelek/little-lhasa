@@ -110,7 +110,7 @@ export function squareAtlas(): Atlas {
   text('kioskDrink', 'COLD DRINK', 160, 32, { bg: 0xc8322b, fg: 0xf3efe6, fill: 0.8 });
   text('poster1', 'MUSIC NIGHT', 128, 160, { bg: 0x213252, fg: 0xf1c232, fill: 0.3 });
   text('poster2', 'YOGA', 96, 128, { bg: 0xe07a2e, fg: 0xf3efe6, fill: 0.4 });
-  text('poster3', 'MOMO', 96, 96, { bg: 0xf3efe6, fg: 0x8b1e2d, fill: 0.45 });
+  text('poster3', 'LOSAR', 96, 96, { bg: 0xf3efe6, fg: 0x8b1e2d, fill: 0.45 });
   text('tapNote', 'पानी', 48, 24, { bg: 0x7e786f, fg: 0xf3efe6, font: 'dev', fill: 0.8 });
   // painted mani stones: coloured letters on grey slate
   const stoneInk = [0x2f63b8, 0xc8322b, 0xf1c232, 0x2f8a4a, 0xf3efe6];

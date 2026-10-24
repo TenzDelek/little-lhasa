@@ -100,7 +100,7 @@ export const SPOTS = {
   templeGate: { x: 9, z: 93, ry: 0 },              // gate arch where Temple Road meets the courtyard
   templeMain: { x: 10, z: 116, ry: Math.PI },      // main temple hall, front door faces north (toward the gate)
   kalachakra: { x: -4, z: 109, ry: Math.PI / 2 },  // Kalachakra temple on the west side, facing east
-  prayerWheelRow: { x: 23.7, z: 112, ry: -Math.PI / 2 }, // in the gallery lane by the wheel row (wheels at x 22.95, z 102.6..121.4), facing west
+  prayerWheelRow: { x: 23.7, z: 112, ry: -Math.PI / 2 }, // in the gallery lane by the wheel row (wheels at x 22.95, z 102.6..121.4, lane on their east side), facing west
   butterLampHouse: { x: 19, z: 99, ry: Math.PI },  // glass-fronted butter-lamp house near the gate
   debateYard: { x: 3, z: 100, ry: 0 },             // monks debate here (clapping)
   // standing points in front of things (the spots above are object centres)

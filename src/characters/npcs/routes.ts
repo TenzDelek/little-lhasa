@@ -209,6 +209,18 @@ export function avoid(r: Route) {
   }
   for (let i = 0; i < n; i++) {
     const nx = -r.tz[i], nz = r.tx[i];
-    r.lift[i] = probe(r.bx[i] + nx * r.off[i], r.bz[i] + nz * r.off[i], r.probeR).lift;
+    let pr = probe(r.bx[i] + nx * r.off[i], r.bz[i] + nz * r.off[i], r.probeR);
+    if (pr.blocked) {
+      // the blur carried a neighbour's shift into something else (a car parked at an angle): take the free
+      // shift nearest to the blurred one
+      let best = r.off[i], bd = Infinity;
+      for (let k = -1; k < tries.length; k++) {
+        const sft = k < 0 ? 0 : tries[k], d = Math.abs(sft - r.off[i]);
+        if (d < bd && !probe(r.bx[i] + nx * sft, r.bz[i] + nz * sft, r.probeR).blocked) { best = sft; bd = d; }
+      }
+      r.off[i] = best;
+      pr = probe(r.bx[i] + nx * best, r.bz[i] + nz * best, r.probeR);
+    }
+    r.lift[i] = pr.lift;
   }
 }

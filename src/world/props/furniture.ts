@@ -13,7 +13,7 @@ import { signSize, type SignSpec } from '../../kit/sign';
 import { type PCtx, count, mark, solid } from './ctx';
 import { KEEP } from './parking';
 import {
-  BHAGSU, DHARAMKOT, JOGIWARA, TEMPLE_RD, edgePt, freeRange, hasDrain, inDrain, postPt, propPt, stripOK,
+  BHAGSU, DHARAMKOT, DRAIN_OUT, JOGIWARA, TEMPLE_RD, edgePt, freeRange, hasDrain, inDrain, postPt, propPt, stripOK,
   territoryOK,
 } from './plan';
 
@@ -30,7 +30,11 @@ function near<T>(s: number, range: number, step: number, test: (s: number) => T 
 }
 
 // ---- signs -----------------------------------------------------------------------------------------------
-interface SignPlan { road: Road; s: number; side: 1 | -1; spec: SignSpec; face: 'back' | 'fwd' }
+interface SignPlan {
+  road: Road; s: number; side: 1 | -1; spec: SignSpec; face: 'back' | 'fwd';
+  /** Turn the board this far (rad) toward the traffic it is for; it then stands behind the kerb / drain. */
+  twist?: number;
+}
 
 function placeSign(c: PCtx, P0: SignPlan) {
   const { w: bw } = signSize(P0.spec);
@@ -38,27 +42,31 @@ function placeSign(c: PCtx, P0: SignPlan) {
   const hw = Math.max(0.25, bw / 2 - 0.15) + 0.08; // post half-spread (+ footing)
   const tryAt = (s: number) => {
     const p = postPt(P.road, s, P.side);
-    // on the kerb in front of a drain the board runs along it; on the verge it is turned a little toward
-    // the traffic it is meant for, set back so both posts stay off the road
-    const twist = p.kerb ? 0 : 0.2;
-    const q = p.kerb ? p : edgePt(P.road, s, P.side, 0.32 + Math.sin(twist) * hw);
+    // on the kerb in front of a drain the board runs along it; on the verge (or behind the drain, for a plan
+    // with its own twist) it is turned toward the traffic it is meant for, set back so both posts stay off the
+    // road and out of the drain
+    const twist = P.twist ?? (p.kerb ? 0 : 0.2);
+    const onKerb = p.kerb && !P.twist;
+    const q = onKerb ? p : edgePt(P.road, s, P.side, (p.kerb ? DRAIN_OUT + 0.06 : 0.32) + Math.sin(twist) * hw);
     if (!stripOK(q, q === p ? p.off : 0.3)) return null;
     const along = P.face === 'back' ? Math.atan2(-q.tx, -q.tz) : Math.atan2(q.tx, q.tz);
     const yaw = q.yawIn + Math.sign(angleTo(q.yawIn, along)) * twist;
     const cs = Math.cos(yaw), sn = Math.sin(yaw);
-    const y = p.kerb ? q.y : groundY(q.x, q.z);
+    const y = onKerb ? q.y : groundY(q.x, q.z);
     if (!keepClear(q.x, q.z, 1)) return null;
     for (const t of [-hw, 0, hw]) {
       const x = q.x + cs * t, z = q.z - sn * t;
       if (!territoryOK(x, z) || c.obs.blocked(x, z, 0.1, y + 0.05, y + 3)) return null;
       if (c.obs.structureDist(x, z, 1, 2) < 0.12) return null;
-      if (edgeOf(P.road, x, z) < (p.kerb ? 0.0 : 0.15)) return null;
+      if (edgeOf(P.road, x, z) < (onKerb ? 0.0 : 0.15)) return null;
       if (inDrain(P.road, x, z, 0.1)) return null;
     }
     // headroom for the board (balconies, awnings)
     if (c.obs.blocked(q.x, q.z, hw, y + 1.9, y + 3.0)) return null;
     const S = signpost(c.tall, q.x, y, q.z, yaw, P.spec);
-    solid(c, S.collider);
+    // raised board + two thin posts (the boy walks under it); later props still keep off the whole footprint
+    c.boxes.push(...S.colliders);
+    c.obs.claim(q.x, q.z, hw, y, S.collider.y1);
     if (S.sign) c.signs.push(S.sign);
     mark(c, 'sign:' + P.spec.text, q.x, q.z);
     return true;
@@ -100,8 +108,10 @@ export function buildSigns(c: PCtx) {
     { road: TEMPLE_RD, s: t0 + 1.5, side: -1, spec: dir('TEMPLE RD'), face: 'back' },
     // and one coming back into town
     { road: BHAGSU, s: 68, side: 1, spec: dir('MCLEOD GANJ 1'), face: 'fwd' },
-    // speed breaker ahead (Dharamkot Road climbs past Amala's house; Bhagsu Road past the tea shop)
-    { road: DHARAMKOT, s: (d0 + d1) / 2 - 7, side: 1, spec: { text: 'SPEED BREAKER', bg: SIGN_YELLOW, fg: INK, glow: false, border: true, frame: 0x6f7378, h: 0.44 }, face: 'back' },
+    // speed breaker ahead (Dharamkot Road climbs past Amala's house; Bhagsu Road past the tea shop). The
+    // Dharamkot hump is at s = 31.4, below Amala's: its board stands further up the road, past her yard, on the
+    // left of the traffic coming down toward it and turned to face that traffic
+    { road: DHARAMKOT, s: 42, side: 1, spec: { text: 'SPEED BREAKER', bg: SIGN_YELLOW, fg: INK, glow: false, border: true, frame: 0x6f7378, h: 0.44 }, face: 'fwd', twist: 1.45 },
     { road: BHAGSU, s: 33, side: 1, spec: { text: 'SPEED BREAKER', bg: SIGN_YELLOW, fg: INK, glow: false, border: true, frame: 0x6f7378, h: 0.44 }, face: 'back' },
   ];
   for (const P of plans) placeSign(c, P);

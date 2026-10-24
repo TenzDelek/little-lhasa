@@ -18,7 +18,8 @@ import { clamp, damp, rng } from '../../core/math';
 import { ITEMS, SPOTS } from '../../world/layout';
 import { groundY, walkable } from '../../world/terrain';
 import { G } from '../../game/store';
-import { animateQuad, snapQuad, type QPose } from './quad';
+import { animateQuad, CATCH_UP_DT, snapQuad, type QPose } from './quad';
+import { View } from '../cull';
 import { buildPuppy } from './species';
 import { Mover } from './mover';
 import { blocked, floorAt, freeSpot, hdist, isNight, optSpot, sfxAt } from './nav';
@@ -64,6 +65,7 @@ function out(pose: QPose, look: number, sleep: boolean, roll: number, tailLift: 
 export function Puppy() {
   const scene = useThree((st) => st.scene);
   const rig = useMemo(() => { const r = buildPuppy(); r.root.name = 'puppy'; return r; }, []);
+  const view = useMemo(() => new View(), []);
   const S = useMemo(() => {
     const h = hideSpot();
     return {
@@ -75,7 +77,7 @@ export function Puppy() {
       sitT: 0, jumpQ: -1, wasAir: false, farT: 0, stuckT: 0, pant: 0, happyT: 0,
       // home
       play: 'sit' as Play, playT: 0, playDur: 4, ang: 0, roll: 0, lapDir: 1,
-      ipos: new Vector3(), hide: h, placed: false, dyn: null as CircleCollider | null,
+      ipos: new Vector3(h.x, groundY(h.x, h.z) + 0.15, h.z), hide: h, placed: false, dyn: null as CircleCollider | null,
     };
   }, []);
 
@@ -104,6 +106,7 @@ export function Puppy() {
       S.placed = true;
       rig.root.position.copy(S.m.pos);
       rig.root.rotation.y = S.m.yaw;
+      S.ipos.set(x, y + 0.15, z);
     };
     place();
     const t1 = setTimeout(place, 2500), t2 = setTimeout(place, 9000);
@@ -133,7 +136,7 @@ export function Puppy() {
     return () => { clearTimeout(t1); clearTimeout(t2); offA(); offB(); dyn.remove(); S.dyn = null; S.m.w.dyn = undefined; };
   }, [S, rig]);
 
-  useFrame(() => {
+  useFrame((state) => {
     const dt = game.dt;
     if (dt <= 0) return;
     const flags = G().flags;
@@ -196,8 +199,13 @@ export function Puppy() {
 
     const moving = m.vel > 0.3;
     S.pant = damp(S.pant, m.vel > 2.2 ? 1 : 0, m.vel > 2.2 ? 2 : 0.3, dt);
-    animateQuad(rig, {
-      dt, time: game.time, speed: m.vel, pose, poseRate: 6,
+    // drawn (and animated) only on screen; the first frame back catches the pose up
+    view.update(state.camera);
+    const was = rig.root.visible;
+    const shown = view.sees(m.pos.x, m.pos.y + 0.2, m.pos.z, 1.4);
+    rig.root.visible = shown;
+    if (shown) animateQuad(rig, {
+      dt: was ? dt : CATCH_UP_DT, time: game.time, speed: m.vel, pose, poseRate: 6,
       air: !m.w.grounded, vy: m.w.vy,
       lookYaw: look, lookPitch: moving ? 0 : -0.1,
       wag: Math.max(S.wag, moving ? 0.35 : 0), mouth: S.mouth, ear: S.ear,

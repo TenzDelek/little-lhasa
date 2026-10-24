@@ -316,8 +316,9 @@ export function buildLife(ctx: LifeCtx): LifeBuild {
   LAMP_POSTS.forEach((l, i) => {
     const { lamp, collider } = streetLamp(p, l.x, groundY(l.x, l.z), l.z, l.yaw, i % 3 === 1 ? 'old' : 'arm', 400 + i);
     out.colliders.push(collider);
-    // the square is wide and its posts stand at the edges: they throw a little further than street lamps
-    out.lamps.push({ ...lamp, intensity: lamp.intensity * 1.35, distance: 12 });
+    // the square's pale flagstones need less light than the kit's dark-asphalt default, and its seven posts'
+    // pools overlap in the middle; they throw a little further than street lamps because the posts stand at the edges
+    out.lamps.push({ ...lamp, intensity: lamp.intensity * 0.6, distance: 12 });
   });
 
   // potted plants: round the shrine plinth, by the chorten gate, along shop fronts

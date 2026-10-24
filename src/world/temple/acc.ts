@@ -16,6 +16,8 @@ export interface WheelSpec {
   use: V3;
   /** Uniform scale of the standard 0.4 x 0.6 m wheel. */
   scale: number;
+  /** Interact point and reach for a big wheel (default: the wheel centre, 1.05 m — right for hand wheels). */
+  reach?: { at: V3; r: number };
 }
 
 export interface LampSpot {

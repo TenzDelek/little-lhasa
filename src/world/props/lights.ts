@@ -58,7 +58,8 @@ export function bracketLamp(p: Parts, at: V3, yaw: number, arm: number, seed: nu
   });
   // supply cable down the wall
   beam(p, [x - sz * 0.08, y + 0.1, z + sx * 0.08], [x - sz * 0.1, y - 1.6, z + sx * 0.1], 0.025, 0x1c1c1f);
-  return { x: head.x + sx * 0.1, y: head.y - 0.4, z: head.z + sz * 0.1, color: PAL.lampSodium, intensity: 12, distance: 11 };
+  // (as bright as a post lamp: it hangs just as high over the same dark road)
+  return { x: head.x + sx * 0.1, y: head.y - 0.4, z: head.z + sz * 0.1, color: PAL.lampSodium, intensity: 38, distance: 15 };
 }
 
 export function buildLights(c: PCtx) {

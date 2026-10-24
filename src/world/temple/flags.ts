@@ -1,11 +1,12 @@
 // Lungta strung across the courtyard: from the gilded pavilion down to the roof corners, from the main hall
 // to the gate, over the wheel-gallery lane, between the monks' quarters, the Kalachakra temple, the peepal
-// tree and the big chorten. (Kora flags are placed in kora.ts.)
+// tree and the big chorten, and from the darchor tops. (Kora flags are placed in kora.ts.)
 import type { V3 } from '../../core/geom';
 import type { FlagLine } from '../../kit/flags';
 import type { Acc } from './acc';
 import { CY } from './site';
 import { galleryPostTop as galleryPost } from './gallery';
+import { DARCHOR } from './dressing';
 
 export function buildCourtFlags(acc: Acc) {
   const roofTop = CY + 9.6 + 0.45;           // main hall parapet top
@@ -46,6 +47,16 @@ export function buildCourtFlags(acc: Acc) {
     [[17.7, blockY2, 127.5], [hall.x1, roofTop, hall.z1]], [[26.3, blockY2, 127.5], galleryPost(6)],
     [[3.0, blockY2, 130.9], [10.45, CY + 1.3, 131.2]], [[13.55, CY + 1.3, 131.2], [17.7, blockY2, 130.9]],
   ];
+  // darchor lungta (the poles carry no ground strings): from each pole top to a roof or another pole top, all
+  // well above head height — across the front of the main hall between the two step poles, and out to the
+  // debate tree, the lamp-house roof, the gate roof, the NW quarters and the big chorten
+  const top = (i: number): V3 => { const p = DARCHOR[i]; return [p.x, (p.y ?? CY) + (p.h ?? 6) - 0.45, p.z]; };
+  L.push(
+    [top(0), top(1)], [top(0), tree], [top(1), [lampHouse.x0, lampHouse.y, lampHouse.z1]],
+    [top(2), [-9.9, blockY3, 98.3]], [top(2), [-13.4, blockY3, 98.3]],
+    [top(3), [lampHouse.x1, lampHouse.y, lampHouse.z0]], [top(3), gateE],
+    [top(4), chortenTop], [top(4), [hall.x0, roofTop, hall.z1]],
+  );
   let seed = 1;
   for (const [a, b, sag] of L) {
     const span = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);

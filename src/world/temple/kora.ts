@@ -156,7 +156,12 @@ function maniLhakhang(acc: Acc, s: number, side = 1) {
     B.box(0.5, 0.08, 0.9, [0, fy + 2.15, -0.25], PAL.templeMaroon);
     B.box(0.5, 0.12, 0.5, [0, fy + 0.06, -0.15], PAL.templeMaroon);
   });
-  acc.wheels.push({ id: `kora-wheel-${++koraWheelN}`, group: 'kora', x: c.x - Math.sin(yaw) * 0.15, y: fy + 1.12, z: c.z - Math.cos(yaw) * 0.15, scale: 2.5, use: [c.x + fx * 1.4, fy, c.z + fz * 1.4] });
+  // the big wheel's collider (r 0.62) keeps the boy 0.86 m from its axis, so the standard 1.05 m reach left
+  // only a thin ring; reach 1.4 m from a point 0.3 m in front of the axis covers the whole floor and the
+  // doorstep, but not the strip behind the back wall
+  const wx = c.x - Math.sin(yaw) * 0.15, wz = c.z - Math.cos(yaw) * 0.15;
+  acc.wheels.push({ id: `kora-wheel-${++koraWheelN}`, group: 'kora', x: wx, y: fy + 1.12, z: wz, scale: 2.5, use: [c.x + fx * 1.4, fy, c.z + fz * 1.4],
+    reach: { at: [wx + fx * 0.3, fy + 0.97, wz + fz * 0.3], r: 1.4 } });
   const cs = Math.cos(yaw), sn = Math.sin(yaw);
   const toW = (lx: number, lz: number) => [c.x + lx * cs + lz * sn, c.z - lx * sn + lz * cs] as const;
   const [bx, bz] = toW(0, -D / 2 + 0.125);

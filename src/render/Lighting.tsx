@@ -1,9 +1,10 @@
 // Sun / moon, sky fill, and the night lamp pool.
 // Day: warm sun from the south-east over a pale sky fill (Gorshey's day mode).
 // Night: slate moonlight with a blue cast, a dim hemisphere, and up to POOL real point lights that hop to
-// the registered lamps nearest the view, so streets glow warm wherever the boy walks. A lamp joining or
-// leaving the pool fades over a quarter second instead of popping. The pool size never changes: the light
-// count is baked into every shader, so changing it would recompile the whole town.
+// the registered lamps nearest the view (big street-lamp pools first: see pickLamps), so streets glow warm
+// wherever the boy walks. A lamp joining or leaving the pool fades over a quarter second instead of popping.
+// The pool size never changes: the light count is baked into every shader, so changing it would recompile
+// the whole town.
 // Shadows: in the iso view the sun's shadow frustum is fitted to what the camera can actually see (the view
 // box between a little below and well above the boy), so the shadow pass draws less and still covers the
 // whole screen at every zoom and on tall portrait phones; the chase camera keeps a square around the boy.
@@ -37,6 +38,38 @@ const RECV_ABOVE = 12;
 
 interface Slot { lamp: Lamp | null; level: number; leaving: boolean }
 
+/** A lamp whose cut-off is at least this long (m) is a street lamp: it lights a pool of road, not a doorway. */
+const BIG_LAMP = 10;
+/** Pool slots kept for street lamps, so shop bulbs, string lights and porch lamps can't take them all. */
+const BIG_SLOTS = 4;
+/** A street lamp further than this from the view (less half its reach) can't claim a reserved slot. */
+const BIG_REACH = 30;
+
+/**
+ * The lamps that get the real lights: up to BIG_SLOTS street lamps first, then the rest of the pool, both
+ * ranked by distance from the view centre less half the lamp's reach — so a big pool a little further off
+ * beats a doorway bulb close by. Fills and returns `out` (no allocation besides the Set iterators).
+ */
+function pickLamps(vx: number, vz: number, out: Lamp[]): Lamp[] {
+  out.length = 0;
+  const all = lamps.all();
+  const take = (bigOnly: boolean, n: number, maxKey: number) => {
+    for (let j = 0; j < n; j++) {
+      let best: Lamp | null = null, bestKey = maxKey;
+      for (const l of all) {
+        if (bigOnly && l.distance < BIG_LAMP) continue;
+        const k = Math.hypot(l.x - vx, l.z - vz) - 0.5 * l.distance;
+        if (k < bestKey && !out.includes(l)) { bestKey = k; best = l; }
+      }
+      if (!best) return;
+      out.push(best);
+    }
+  };
+  take(true, BIG_SLOTS, BIG_REACH);
+  take(false, POOL - out.length, Infinity);
+  return out;
+}
+
 const _a = new Color(), _b = new Color(), _d = new Vector3(), _r = new Vector3(), _u = new Vector3(), _s = new Vector3();
 const _cr = new Vector3(), _cu = new Vector3(), _cf = new Vector3(), _o = new Vector3();
 const UP = new Vector3(0, 1, 0);
@@ -60,7 +93,7 @@ export function Lighting() {
       return l;
     });
     const slots: Slot[] = Array.from({ length: POOL }, () => ({ lamp: null, level: 0, leaving: false }));
-    return { hemi, amb, sun, pool, slots, nextAssign: 0, night: 0, hx: SHADOW_HALF, hy: SHADOW_HALF };
+    return { hemi, amb, sun, pool, slots, pick: [] as Lamp[], nextAssign: 0, night: 0, hx: SHADOW_HALF, hy: SHADOW_HALF };
   }, []);
 
   useEffect(() => {
@@ -151,14 +184,17 @@ export function Lighting() {
     L.nextAssign -= dt;
     if (L.nextAssign <= 0) {
       L.nextAssign = 0.25;
-      const list = [...lamps.all()];
-      list.sort((a, b) => ((a.x - vx) ** 2 + (a.z - vz) ** 2) - ((b.x - vx) ** 2 + (b.z - vz) ** 2));
-      const wanted = new Set(list.slice(0, POOL));
-      // lamps that dropped out of the nearest set fade out; newcomers take free slots and fade in
-      for (const s of L.slots) if (s.lamp && !wanted.has(s.lamp)) s.leaving = true;
-      for (const s of L.slots) if (s.lamp) wanted.delete(s.lamp);
+      const wanted = pickLamps(vx, vz, L.pick);
+      // lamps that dropped out of the chosen set fade out (one chosen again stops fading); newcomers take free
+      // slots and fade in
+      for (const s of L.slots) if (s.lamp) s.leaving = !wanted.includes(s.lamp);
       for (const lamp of wanted) {
-        const free = L.slots.find((s) => !s.lamp);
+        let free: Slot | null = null, has = false;
+        for (const s of L.slots) {
+          if (s.lamp === lamp) { has = true; break; }
+          if (!s.lamp && !free) free = s;
+        }
+        if (has) continue;
         if (!free) break;
         free.lamp = lamp; free.level = 0; free.leaving = false;
       }

@@ -131,8 +131,10 @@ export function streetLamp(
   const r = srng(seed ?? seedOf(x, z));
   const roll = r();
   const k: LampKind = kind ?? (roll < 0.5 ? 'arm' : roll < 0.75 ? 'solar' : 'old');
-  // (a post lamp hangs ~4.8 m up, so it needs about twice the punch of a shop bulb to put a pool on the road)
-  let headZ = 1.2, headY = 4.6, color: number = PAL.lampSodium, H = 4.6, intensity = 13; // warm light reads darker
+  // (a post lamp hangs ~4.8 m up over dark asphalt, so it needs about eight times the punch of a shop bulb
+  // (~5 at 2.5 m over a lit floor) for its pool to survive the luma bands of the pixel pass: ~2x a bulb's light
+  // on the ground right under it. The square's pale flagstones need less: see src/world/square.)
+  let headZ = 1.2, headY = 4.6, color: number = PAL.lampSodium, H = 4.6, intensity = 40; // warm light reads darker
 
   parts.group([x, y, z], yaw, () => {
     // concrete footing, a little sunk into the ground
@@ -161,7 +163,7 @@ export function streetLamp(
       if (r() < 0.35) parts.box(0.16, 0.22, 0.02, [0, 1.7, 0.07], pick(r, [PAL.wallYellow, PAL.wallWhite, PAL.wallPink]));
     } else if (k === 'solar') {
       H = 4.3;
-      intensity = 10;
+      intensity = 32; // cool white reads brighter per candela
       parts.cyl(0.045, 0.062, H, [0, 0.22, 0], C.galv, 6);
       const top = 0.22 + H;
       // battery box clamped to the pole
@@ -197,7 +199,7 @@ export function streetLamp(
 
   const L = local(x, y, z, yaw, 0, headY - 0.35, headZ);
   return {
-    lamp: { x: L[0], y: L[1], z: L[2], color, intensity, distance: 12 },
+    lamp: { x: L[0], y: L[1], z: L[2], color, intensity, distance: 15 },
     collider: { x, z, w: 0.3, d: 0.3, rot: yaw, y0: y - 0.2, y1: y + H + 0.3, tag: 'lamp' },
   };
 }
@@ -563,6 +565,22 @@ export function steps(
 
 // ---- potted plants ---------------------------------------------------------------------------------
 export type PlantKind = 'marigold' | 'geranium' | 'succulent' | 'aloe' | 'jade' | 'pothos' | 'cactus';
+
+/** Leafy mound over a pot of radius `rad` whose rim is at `top`: two stacked low domes and two leaves poking out. */
+function mound(parts: Parts, rad: number, top: number, light: number, dark: number, r: Rng) {
+  parts.cyl(rad * 0.7, rad * 1.02, 0.12, [0, top - 0.01, 0], light, 7, { rot: [0, r() * 0.9, 0] });
+  parts.cyl(rad * 0.4, rad * 0.72, 0.09, [0.02, top + 0.1, -0.01], dark, 6, { rot: [0, r() * 0.9, 0] });
+  for (let i = 0; i < 2; i++) {
+    const a = r() * Math.PI * 2;
+    parts.box(0.07, 0.012, 0.045, [Math.cos(a) * rad * 0.95, top + 0.05 + r() * 0.06, Math.sin(a) * rad * 0.95], dark, { rot: [0.3, -a, 0.25] });
+  }
+}
+
+/** Round flower head (a short six-sided drum) on a thin stalk from `stemY` up to `at`. */
+function flowerHead(parts: Parts, at: V3, stemY: number, r: number, color: number) {
+  beam(parts, [at[0] * 0.6, stemY, at[2] * 0.6], [at[0], at[1] - 0.01, at[2]], 0.016, C.leafDark);
+  parts.cyl(r, r * 0.8, r * 0.9, [at[0], at[1] - r * 0.4, at[2]], color, 6);
+}
 export type PotKind = 'terracotta' | 'tin' | 'bottle' | 'planter';
 
 /**
@@ -581,8 +599,11 @@ export function pottedPlant(parts: Parts, x: number, y: number, z: number, seed 
     if (potK === 'terracotta') {
       const s = 0.8 + r() * 0.45;
       top = 0.26 * s; rad = 0.16 * s;
-      parts.cyl(0.15 * s, 0.11 * s, 0.22 * s, [0, 0, 0], jitter(r, C.terracotta, 0.07), 8);
-      parts.cyl(0.165 * s, 0.165 * s, 0.045 * s, [0, 0.215 * s, 0], C.terracottaDark, 8);
+      // a bellied pot: narrow foot swelling to the shoulder, then a darker rolled rim (reads round up close)
+      const clay = jitter(r, C.terracotta, 0.07);
+      parts.cyl(0.145 * s, 0.1 * s, 0.13 * s, [0, 0, 0], clay, 8);
+      parts.cyl(0.152 * s, 0.145 * s, 0.09 * s, [0, 0.13 * s, 0], clay, 8);
+      parts.cyl(0.165 * s, 0.158 * s, 0.045 * s, [0, 0.215 * s, 0], C.terracottaDark, 8);
     } else if (potK === 'tin') {
       top = 0.28; rad = 0.13;
       parts.cyl(0.12, 0.12, 0.28, [0, 0, 0], C.galv, 10);
@@ -603,25 +624,23 @@ export function pottedPlant(parts: Parts, x: number, y: number, z: number, seed 
     const T = top;
     switch (plant) {
       case 'marigold': {
-        parts.box(rad * 2, 0.14, rad * 1.8, [0, T + 0.06, 0], C.leaf, { rot: [0, 0.4, 0] });
-        parts.box(rad * 1.4, 0.12, rad * 1.4, [0.02, T + 0.16, -0.01], C.leafDark, { rot: [0, 0.9, 0] });
-        const n = 6 + Math.floor(r() * 4);
+        // a mound of leaves (two stacked domes) with a couple of leaves poking out and 2–3 round orange heads
+        mound(parts, rad, T, C.leaf, C.leafDark, r);
+        const n = 2 + Math.floor(r() * 2);
         for (let i = 0; i < n; i++) {
-          const a = r() * Math.PI * 2, d = r() * rad * 0.95;
-          parts.box(0.075, 0.06, 0.075, [Math.cos(a) * d, T + 0.18 + r() * 0.08, Math.sin(a) * d], pick(r, [0xe0801e, 0xe8a82a, 0xc8641c]));
+          const a = r() * Math.PI * 2, d = rad * (0.2 + r() * 0.5);
+          flowerHead(parts, [Math.cos(a) * d, T + 0.19 + r() * 0.04, Math.sin(a) * d], T + 0.06, 0.045, pick(r, [0xe0801e, 0xe8a82a, 0xc8641c]));
         }
         break;
       }
       case 'geranium': {
-        for (let i = 0; i < 5; i++) {
-          const a = (i / 5) * Math.PI * 2 + r(), d = rad * 0.5;
-          beam(parts, [0, T, 0], [Math.cos(a) * d, T + 0.18 + r() * 0.08, Math.sin(a) * d], 0.03, C.leafDark);
-        }
-        parts.box(rad * 1.9, 0.12, rad * 1.9, [0, T + 0.1, 0], C.leafLight, { rot: [0, 0.6, 0] });
+        // a lighter leafy mound, 2–3 round pink / red heads held up on stalks
+        mound(parts, rad, T, C.leafLight, C.leaf, r);
         const col = pick(r, [0xc23a3a, 0xd86a86, 0xd9826a]);
-        for (let i = 0; i < 4; i++) {
-          const a = r() * Math.PI * 2, d = r() * rad;
-          parts.box(0.1, 0.07, 0.1, [Math.cos(a) * d, T + 0.24 + r() * 0.08, Math.sin(a) * d], jitter(r, col, 0.08));
+        const n = 2 + Math.floor(r() * 2);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + r(), d = rad * (0.3 + r() * 0.4);
+          flowerHead(parts, [Math.cos(a) * d, T + 0.23 + r() * 0.06, Math.sin(a) * d], T + 0.08, 0.05, jitter(r, col, 0.08));
         }
         break;
       }
@@ -654,7 +673,7 @@ export function pottedPlant(parts: Parts, x: number, y: number, z: number, seed 
         break;
       }
       case 'pothos': {
-        parts.box(rad * 1.6, 0.1, rad * 1.6, [0, T + 0.04, 0], C.leaf, { rot: [0, 0.5, 0] });
+        parts.cyl(rad * 0.55, rad * 0.85, 0.1, [0, T - 0.01, 0], C.leaf, 7, { rot: [0, 0.5, 0] });
         for (let i = 0; i < 4; i++) {
           const a = r() * Math.PI * 2, d = rad + 0.02, hang = 0.12 + r() * 0.25;
           const sx = Math.cos(a) * d, sz = Math.sin(a) * d;
@@ -682,10 +701,12 @@ export function pottedPlant(parts: Parts, x: number, y: number, z: number, seed 
  * Signpost on two galvanised posts. With a SignSpec (or plain text) the board is a makeSign() mesh the
  * caller must add to the scene (`sign`); without one, a green road-sign board with a white border is drawn
  * in Parts. The board faces local +z (yaw).
+ * Colliders: the board is a raised box (the boy walks under it between the posts and bumps his head jumping
+ * into it), and each post is a thin box of its own. Register all of `colliders`; `collider` is the board alone.
  */
 export function signpost(
   parts: Parts, x: number, y: number, z: number, yaw: number, spec?: SignSpec | string,
-): { collider: BoxInit; sign: Mesh | null } {
+): { collider: BoxInit; colliders: BoxInit[]; sign: Mesh | null } {
   let sign: Mesh | null = null;
   let bw = 1.1, bh = 0.6;
   const boardY = 2.1;
@@ -715,7 +736,12 @@ export function signpost(
       parts.box(bw * 0.9, 0.04, 0.03, [0, boardY + bh, 0.02], C.galvDark);
     }
   });
-  return { collider: { x, z, w: half * 2 + 0.1, d: 0.12, rot: yaw, y0: y, y1: y + boardY + bh, tag: 'sign' }, sign };
+  const board: BoxInit = { x, z, w: bw + 0.04, d: 0.14, rot: yaw, y0: y + boardY - 0.05, y1: y + boardY + bh, tag: 'sign' };
+  const cs = Math.cos(yaw), sn = Math.sin(yaw);
+  const posts = [-half, half].map((t): BoxInit => (
+    { x: x + cs * t, z: z - sn * t, w: 0.12, d: 0.12, rot: yaw, y0: y - 0.1, y1: y + boardY + bh, tag: 'sign-post' }
+  ));
+  return { collider: board, colliders: [board, ...posts], sign };
 }
 
 /** Concrete bollard with black / yellow bands. Returns collider. */

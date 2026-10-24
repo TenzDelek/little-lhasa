@@ -128,7 +128,9 @@ export function buildMarket(): MarketBuild {
   // 7. merge
   const meshes: Object3D[] = [];
   const add = (list: Mesh[]) => { for (const m of list) meshes.push(m); };
-  add(c.bld.toMeshes(partsMaterial({ occlude: true }), 40));
+  // buildings in 24 m chunks: 40 m ones (up to ~47k triangles, 32 m bounding radius) were almost never culled,
+  // in the main pass or the shadow pass; the light props stay in big chunks
+  add(c.bld.toMeshes(partsMaterial({ occlude: true }), 24));
   add(c.props.toMeshes(partsMaterial(), 40));
   if (c.hang.size) add(c.hang.toMeshes(swayMaterial(), 200));
   const steam = buildSteam(c.steam);

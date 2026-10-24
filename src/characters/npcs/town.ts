@@ -83,10 +83,12 @@ export function buildRoutes(): Record<string, Route> {
   const mani = makeRoute('mani', roundedSquare(m.x, m.z, half, 0.55), true, { inward: 1, maxIn: 0.32, maxOut: 0.3, probeR: 0.2, sideIn: 0.12, sideOut: 0.25 });
 
   // ---- inner kora round the main hall in the courtyard (clockwise) ---------------------------------------
-  // north leg runs in front of the debaters' standing line, clear of the debate platform and the hall steps
+  // north leg runs in front of the debaters' standing line, clear of the debate platform and the hall steps;
+  // the east leg squeezes past the lamp house (z ≈ 101.3) into the prayer-wheel gallery's lane and walks it
+  // southward, the wheels (x = 22.95) on the right hand, then back out round its south end
   const court = makeRoute('court', [
-    [-0.4, 99.3], [5.5, 99.3], [9.0, 100.0], [15.0, 101.4], [17.8, 102.4], [19.6, 104.6], [19.7, 114], [19.6, 124.6],
-    [17.6, 126.8], [9.0, 127.0], [1.6, 126.8], [0.6, 124.6], [0.7, 114], [0.6, 104.6], [-1.1, 103.2], [-1.3, 100.6],
+    [-0.4, 99.3], [5.5, 99.3], [9.0, 100.0], [15.0, 101.4], [17.8, 102.0], [21.6, 101.3], [23.7, 102.6], [23.7, 114],
+    [23.7, 121.4], [21.6, 123.6], [19.6, 124.8], [17.6, 126.8], [9.0, 127.0], [1.6, 126.8], [0.6, 124.6], [0.7, 114], [0.6, 104.6], [-1.1, 103.2], [-1.3, 100.6],
   ], true, { inward: 1, maxIn: 1.0, maxOut: 1.0 });
 
   return { town, monks, market, bhagsu, dharamkot, kora, mani, court };

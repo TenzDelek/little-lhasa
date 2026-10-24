@@ -4,6 +4,7 @@
 // back houses whose footprint lies in that view corridor are kept low enough (or left out) for the stall's
 // counter to stay in view.
 import { toWorld, type Frame } from './util';
+import { FLAT_ROOF_TOP } from '../../kit/building';
 
 const AZ = Math.PI / 4;
 const VX = Math.sin(AZ), VZ = Math.cos(AZ);
@@ -46,5 +47,6 @@ export function sightTop(sights: readonly Sight[], f: Frame, w: number, z0: numb
   return top;
 }
 
-/** Height a building of `floors` storeys reaches above its floor with a bare flat roof (parapet + trim). */
-export const FLAT_EXTRA = 1.05;
+/** Height a building of `floors` storeys reaches above floors × FLOOR_H with a bare flat roof: the kit's
+ *  parapet + coping (FLAT_ROOF_TOP, 0.96 m) and a 9 cm margin, so it follows any change to the kit's parapets. */
+export const FLAT_EXTRA = FLAT_ROOF_TOP + 0.09;

@@ -50,10 +50,11 @@ export function floorAt(x: number, z: number, feetY: number, r = 0.15, stepUp = 
   return collision.supportY(x, z, r, feetY, stepUp);
 }
 
-/** True if a body (radius r, height h) at (x, y, z) overlaps any solid collider. */
-export function blocked(x: number, y: number, z: number, r: number, h: number) {
+/** True if a body (radius r, height h) at (x, y, z) overlaps any solid collider (`dynamics` = false: the
+ *  static town only, not people and animals passing by). */
+export function blocked(x: number, y: number, z: number, r: number, h: number, dynamics = true) {
   const p = { x, z };
-  return collision.resolve(p, r, y, h, 0.05);
+  return collision.resolve(p, r, y, h, 0.05, dynamics);
 }
 
 export interface Walker {
@@ -397,10 +398,11 @@ export function resolveSeat(st: EdgeSeat): EdgeSeat {
   return st;
 }
 
-/** True if no collider blocks the line from (x, y, z) toward direction (dx, dy, dz) within `far` metres. */
+/** True if no collider blocks the line from (x, y, z) toward direction (dx, dy, dz) within `far` metres
+ *  (posts and poles thinner than 0.35 m don't count: they never hide a dog or a monkey). */
 export function openToward(x: number, y: number, z: number, dx: number, dy: number, dz: number, far = 22): boolean {
   const L = Math.hypot(dx, dy, dz) || 1;
-  return collision.segment(x, y, z, x + (dx / L) * far, y + (dy / L) * far, z + (dz / L) * far, 0.05) >= 0.999;
+  return collision.segment(x, y, z, x + (dx / L) * far, y + (dy / L) * far, z + (dz / L) * far, 0.05, 0.35) >= 0.999;
 }
 
 /** Debug: progress of the top-surface queries. */

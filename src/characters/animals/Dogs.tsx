@@ -12,7 +12,8 @@ import { interactions } from '../../core/interact';
 import { clamp, damp, rng, type Rng } from '../../core/math';
 import { roadById, roadFrame, roadLength } from '../../world/layout';
 import { G } from '../../game/store';
-import { animateQuad, type QPose, type QuadRig } from './quad';
+import { animateQuad, CATCH_UP_DT, type QPose, type QuadRig } from './quad';
+import { View } from '../cull';
 import { buildDog, DOG_COATS } from './species';
 import { Mover } from './mover';
 import { animalsBus, freeSpot, hdist, isNight, seenSpot, sfxAt } from './nav';
@@ -66,6 +67,7 @@ interface Dog {
 const STEP_SLEEP: Record<Kind, St> = { sleeper: 'sleep', wanderer: 'walk', friendly: 'rest' };
 
 export function Dogs() {
+  const view = useMemo(() => new View(), []);
   const { group, dogs } = useMemo(() => {
     const group = new Group();
     const dogs: Dog[] = dogDefs().map((def, i) => {
@@ -82,7 +84,7 @@ export function Dogs() {
         act: 'look', routeI: 1, tx: def.home.x, tz: def.home.z, home: { ...def.home },
         wag: 0, mouth: 0, ear: 0, earT: 2 + r() * 6, pant: 0,
         barkCD: 2, barkN: 0, barkAt: { x: 0, z: 0 }, followCD: 4, check: r(),
-        ipos: new Vector3(), ph: r() * 10,
+        ipos: new Vector3(m.pos.x, m.pos.y + 0.3, m.pos.z), ph: r() * 10,
       };
     });
     return { group, dogs };
@@ -110,23 +112,33 @@ export function Dogs() {
         if (!f) continue;
         d.home.x = f.x; d.home.z = f.z;
         const unseen = game.time < 5 || hdist(d.m.pos, game.player.pos) > 14;
-        if ((d.st === 'sleep' || d.st === 'rest') && unseen) d.m.teleport(f.x, f.y, f.z);
+        if ((d.st === 'sleep' || d.st === 'rest') && unseen) {
+          d.m.teleport(f.x, f.y, f.z);
+          d.rig.root.position.copy(d.m.pos); // shown there at once (the frame loop is idle on the title screen)
+          d.ipos.set(f.x, f.y + 0.3, f.z);
+        }
       }
     };
     settle();
-    const t1 = setTimeout(settle, 2500), t2 = setTimeout(settle, 8000);
-    return () => { offs.forEach((f) => f()); clearTimeout(t1); clearTimeout(t2); for (const d of dogs) { d.dyn = null; d.m.w.dyn = undefined; } };
+    const t0 = setTimeout(settle, 1000), t1 = setTimeout(settle, 2500), t2 = setTimeout(settle, 8000);
+    return () => { offs.forEach((f) => f()); clearTimeout(t0); clearTimeout(t1); clearTimeout(t2); for (const d of dogs) { d.dyn = null; d.m.w.dyn = undefined; } };
   }, [dogs]);
 
-  useFrame(() => {
+  useFrame((state) => {
     const dt = game.dt;
     if (dt <= 0) return;
     const P = game.player.pos;
     const night = isNight();
+    view.update(state.camera);
     for (const d of dogs) {
       const dist = hdist(d.m.pos, P);
       const far = dist > 70;
-      d.rig.root.visible = !far;
+      // drawn (and animated) only on screen; the sphere is generous so shadows just off screen still fall in
+      const was = d.rig.root.visible;
+      const shown = !far && view.sees(d.m.pos.x, d.m.pos.y + 0.3, d.m.pos.z, 1.8);
+      d.rig.root.visible = shown;
+      // the pet prompt follows the dog even while it is out of range (teleports, settling)
+      d.ipos.set(d.m.pos.x, d.m.pos.y + 0.3, d.m.pos.z);
       if (far && d.st !== 'follow') continue;
       think(d, dt, dist, night);
       // animation
@@ -137,8 +149,8 @@ export function Dogs() {
       if (d.earT <= 0) { d.earT = 3 + d.r() * 8; d.ear = (d.r() > 0.5 ? 1 : -1) * (sleeping ? 0.6 : 1); }
       d.pant = damp(d.pant, d.m.vel > 2.6 ? 1 : 0, d.m.vel > 2.6 ? 1.5 : 0.25, dt);
       const lookP = dist < 7 && d.st !== 'sleep' && d.st !== 'walk';
-      animateQuad(d.rig, {
-        dt, time: game.time, speed: d.m.vel, pose, poseRate: 4,
+      if (shown) animateQuad(d.rig, {
+        dt: was ? dt : CATCH_UP_DT, time: game.time, speed: d.m.vel, pose, poseRate: 4,
         air: !d.m.w.grounded, vy: d.m.w.vy,
         lookYaw: d.st === 'bark' ? d.m.lookAt(d.barkAt.x, d.barkAt.z) : lookP ? d.m.lookAt(P.x, P.z) : Math.sin(game.time * 0.3 + d.ph) * 0.5 * (d.st === 'pause' ? 1 : 0),
         lookPitch: d.st === 'bark' ? -0.15 : 0,

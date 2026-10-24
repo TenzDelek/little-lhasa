@@ -12,10 +12,11 @@ import { game } from '../../core/game';
 import { angleDelta, clamp, damp, dampAngle, rng, type Rng } from '../../core/math';
 import { roadById, roadFrame, roadLength } from '../../world/layout';
 import { groundY, roadQuery, walkable } from '../../world/terrain';
-import { animateQuad, snapQuad, type QPose, type QuadRig } from './quad';
+import { animateQuad, CATCH_UP_DT, snapQuad, type QPose, type QuadRig } from './quad';
+import { View } from '../cull';
 import { buildLangur, buildMacaque } from './species';
 import {
-  animalsBus, blocked, floorAt, hdist, isNight, openToward, perchPoint, pumpTops, requestTop, roofPerches, setProbeScene, sfxAt, topsStatus, TO_CAM, edgeSeat, resolveSeat, type EdgeSeat,
+  animalsBus, blocked, floorAt, freeSpot, hdist, isNight, openToward, perchPoint, pumpTops, requestTop, roofPerches, setProbeScene, sfxAt, topsStatus, TO_CAM, edgeSeat, resolveSeat, type EdgeSeat,
   type Perch, type TopQuery,
 } from './nav';
 
@@ -77,6 +78,22 @@ function koraGround(): Perch[] {
   return out;
 }
 
+/**
+ * Keep a ground perch only if its middle is free, and shorten its run so a monkey sitting anywhere along it
+ * (offsets up to ±half) stays clear of walls, posts and stalls.
+ */
+function fitGround(p: Perch): boolean {
+  const free = (u: number) => {
+    const x = p.x + p.ex * u, z = p.z + p.ez * u;
+    return walkable(x, z) && !blocked(x, groundY(x, z), z, 0.2, 0.5, false);
+  };
+  if (!free(0)) return false;
+  let h = 0;
+  while (h + 0.25 <= p.half && free(h + 0.25) && free(-h - 0.25)) h += 0.25;
+  p.half = Math.max(0.01, h);
+  return true;
+}
+
 function nearRoad(c: BoxCollider, id: string, edge: number, sMin = 0, sMax = 1e9) {
   const rq = roadQuery(c.x, c.z);
   return rq.road.id === id && rq.edge < edge && rq.s > sMin && rq.s < sMax;
@@ -91,10 +108,10 @@ function perchesFor(kind: Kind): Perch[] {
     const roofs = roofPerches((c) => (c.tag === 'building' || c.tag === 'parapet') && nearRoad(c, 'temple-road', 15, 3) && heightOk(c, 1.5, 18), 0.1, 0.6, VIEW);
     const walls = roofPerches((c) => (c.tag === 'wall' || c.tag === 'railing') && (nearRoad(c, 'temple-road', 10, 3) || nearRoad(c, 'kora-path', 6)) && heightOk(c, 0.8, 4), 0.02, 0.25);
     const all = [...roofs, ...walls];
-    return all.length >= 3 ? all : [...all, ...templeGround()];
+    return all.length >= 3 ? all : [...all, ...templeGround().filter(fitGround)];
   }
   const walls = roofPerches((c) => (c.tag === 'wall' || c.tag === 'rock') && nearRoad(c, 'kora-path', 8) && heightOk(c, 0.3, 3.5), 0.02, 0.25);
-  return [...koraGround().filter((p) => walkable(p.x, p.z) && !blocked(p.x, p.y, p.z, 0.2, 0.5)), ...walls];
+  return [...koraGround().filter(fitGround), ...walls];
 }
 
 // Real seats along each roof perch (parapet tops, tin roof slopes, the true edge past an overhang), sampled
@@ -172,6 +189,7 @@ function seatAt(perch: Perch, u: number, out: Vector3) {
 
 // ---- component -------------------------------------------------------------------------------------------------
 export function Monkeys() {
+  const view = useMemo(() => new View(), []);
   const S = useMemo(() => {
     const group = new Group();
     const perches: Record<Kind, Perch[]> = { macaque: perchesFor('macaque'), langur: perchesFor('langur') };
@@ -237,16 +255,15 @@ export function Monkeys() {
     return () => { animalsBus.monkeys = []; delete w.__monkeys; };
   }, [S]);
 
-  useFrame(() => {
+  useFrame((state, raw) => {
     const dt = game.dt;
-    if (dt <= 0) return;
     const P = game.player.pos;
-    const night = isNight();
-    troopCry -= dt;
 
-    // rescan perches as buildings register (2 s, 6 s, 15 s, then whenever colliders change)
-    S.scanT += dt;
-    const due = S.scans < 3 ? S.scanT > [2, 6, 15][S.scans] : S.scanT > 20 + S.scans * 2;
+    // rescan perches as buildings register (0.5 s, 2 s, 6 s, 15 s, then whenever colliders change). Real time,
+    // so it runs behind the loading and title screens too: the troop is up on the roofs, not sitting in a shop
+    // front, when play starts
+    S.scanT += Math.min(raw, 0.1);
+    const due = S.scans < 4 ? S.scanT > [0.5, 2, 6, 15][S.scans] : S.scanT > 20 + S.scans * 2;
     if (due && collision.version !== S.version) {
       S.version = collision.version;
       S.perches.macaque = perchesFor('macaque');
@@ -254,6 +271,21 @@ export function Monkeys() {
       queueAll(S.perches.macaque); queueAll(S.perches.langur);
       S.scans++;
       S.seenDone = false;
+      // something new built where a monkey sits on the ground (a shed, a post): it moves on at once, unseen
+      // ones simply taken to a free ground perch of their own kind
+      for (const m of S.monkeys) {
+        if (m.perch.owner !== null || m.st === 'leap' || m.st === 'land') continue;
+        if (!blocked(m.pos.x, groundY(m.pos.x, m.pos.z), m.pos.z, 0.2, 0.5, false)) continue;
+        m.partner = null;
+        const list = S.perches[m.kind].filter((p) => p.owner === null);
+        if ((hdist(m.pos, P) > 22 || game.time < 6) && list.length) {
+          let best = list[0], bd = Infinity;
+          for (const p of list) { const d = Math.hypot(p.x - m.pos.x, p.z - m.pos.z); if (d < bd) { bd = d; best = p; } }
+          m.perch = best; m.u = m.walkU = roomOn(S, m, best, 0); seatAt(best, m.u, m.pos);
+          m.st = m.st === 'sleep' ? 'sleep' : 'sit'; m.t = 0;
+          m.rig.root.position.copy(m.pos);
+        } else { m.st = 'sit'; m.t = 0; m.dur = 0.2; m.home = -1; }
+      }
       // monkeys still sitting on the pavement go up onto the roofs: unseen ones are simply moved there,
       // ones in view leap up
       const roofs = S.perches.macaque.filter((p) => p.owner !== null);
@@ -275,6 +307,11 @@ export function Monkeys() {
         }
       }
     } else if (due) S.scans++;
+
+    if (dt <= 0) return;
+    const night = isNight();
+    troopCry -= dt;
+    view.update(state.camera);
 
     // night: the troop gathers on one roof (re-chosen when the rooftops change)
     if (night !== S.nightWas || (night && S.huddleVersion !== S.version)) {
@@ -318,7 +355,11 @@ export function Monkeys() {
 
     for (const m of S.monkeys) {
       const dxz = hdist(m.pos, P);
-      m.rig.root.visible = dxz < 70 || m.st === 'leap';
+      // drawn (and animated) only on screen; up on a roof the shadow falls further away, so the sphere grows
+      const was = m.rig.root.visible;
+      const lift = Math.max(0, m.pos.y - groundY(m.pos.x, m.pos.z));
+      const shown = (dxz < 70 || m.st === 'leap') && view.sees(m.pos.x, m.pos.y + 0.3, m.pos.z, 1.5 + lift * 0.8);
+      m.rig.root.visible = shown;
       if (m.perch.owner && (m.st === 'sit' || m.st === 'groom' || m.st === 'groomed' || m.st === 'sleep' || m.st === 'land')) {
         // settle onto the real seat as the height queries come in
         seatAt(m.perch, m.u, _seat);
@@ -326,7 +367,7 @@ export function Monkeys() {
       }
       if (dxz > 70 && m.st !== 'leap') continue;
       think(S, m, dt, dxz, night);
-      pose(m, dt, dxz);
+      pose(m, dt, dxz, shown ? (was ? dt : CATCH_UP_DT) : 0);
       m.bus.leaping = m.st === 'leap';
       if (m.dyn) {
         const park = m.st === 'leap';
@@ -497,7 +538,9 @@ function queueLeap(m: Monkey, perch: Perch, u: number, hop: number): boolean {
   if (d > hop && perch.owner === null && m.pos.y - groundY(m.pos.x, m.pos.z) < 0.5) {
     // bound partway along the ground
     const k = hop / d;
-    const x = m.pos.x + dx * k, z = m.pos.z + dz * k;
+    let x = m.pos.x + dx * k, z = m.pos.z + dz * k;
+    // never touch down inside a wall or a post on the way: the nearest free spot instead
+    if (blocked(x, groundY(x, z), z, 0.2, 0.5, false)) { const f = freeSpot(x, z, 0.2, 0.5, 1.5); if (f) { x = f.x; z = f.z; } }
     const mid = { x, y: floorAt(x, z, groundY(x, z) + 0.3, 0.15, 0.3), z, yaw: perch.yaw, ex: perch.ex, ez: perch.ez, half: 0.01, owner: null } as Perch;
     then = perch; perch = mid; u = 0; to.set(mid.x, mid.y, mid.z);
     d = Math.hypot(to.x - m.pos.x, to.z - m.pos.z, to.y - m.pos.y);
@@ -514,7 +557,8 @@ function queueLeap(m: Monkey, perch: Perch, u: number, hop: number): boolean {
   return true;
 }
 
-function pose(m: Monkey, dt: number, dxz: number) {
+/** Head / scratch timers, then the rig (animated with `adt`: 0 while culled, a catch-up step on showing). */
+function pose(m: Monkey, dt: number, dxz: number, adt: number) {
   const P = game.player.pos;
   // head: glance around, look at the boy when he is near
   m.lookT -= dt;
@@ -542,7 +586,7 @@ function pose(m: Monkey, dt: number, dxz: number) {
   }
   const raised = m.perch.owner !== null && m.pos.y - groundY(m.pos.x, m.pos.z) > 0.6;
   animateQuad(m.rig, {
-    dt, time: game.time, speed, pose: p, poseRate: 7, air, vy,
+    dt: adt, time: game.time, speed, pose: p, poseRate: 7, air, vy,
     lookYaw: m.st === 'sit' ? m.look : 0, lookPitch: m.st === 'groom' ? 0.3 : raised && m.st === 'sit' ? 0.25 : 0,
     groom: m.st === 'groom' ? 1 : 0,
     scratch: m.st === 'sit' && m.scratch > 0 ? 1 : 0,

@@ -68,8 +68,8 @@ export function PrayerWheels({ wheels }: { wheels: WheelSpec[] }) {
     mesh.computeBoundingSphere();
     const offs = wheels.map((w, i) => interactions.add({
       id: w.id,
-      pos: [w.x, w.y - 0.15, w.z],
-      radius: 1.05,
+      pos: w.reach ? w.reach.at : [w.x, w.y - 0.15, w.z],
+      radius: w.reach ? w.reach.r : 1.05,
       label: 'Spin prayer wheel',
       anim: 'spin',
       onInteract: () => {

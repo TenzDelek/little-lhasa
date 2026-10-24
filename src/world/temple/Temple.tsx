@@ -64,7 +64,8 @@ export function Temple() {
       <BodhiTree />
       {acc.smoke.length > 0 && <Smoke sources={acc.smoke} />}
       {acc.flags.length > 0 && <PrayerFlags lines={acc.flags} />}
-      {acc.poles.length > 0 && <Darchor poles={acc.poles} />}
+      {/* no radiating ground strings: the court's darchor lungta are strung clear of the walkways in flags.ts */}
+      {acc.poles.length > 0 && <Darchor poles={acc.poles} strings={0} />}
     </>
   );
 }
