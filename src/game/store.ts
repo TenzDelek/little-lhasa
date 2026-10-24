@@ -44,6 +44,8 @@ export interface QuestState {
 export interface Toast { id: number; text: string; kind: 'info' | 'quest' | 'merit' | 'money' }
 
 interface Store {
+  /** The scene has built and rendered its first frames (show a loading state until then). */
+  ready: boolean;
   started: boolean;
   paused: boolean;
   muted: boolean;
@@ -109,6 +111,7 @@ export const useGame = create<Store>()(persist((set, get) => ({
   dialogue: null,
   toasts: [],
   ...FRESH,
+  ready: false,
   panel: null,
   area: 'Main Square',
 

@@ -1,6 +1,6 @@
 // Game clock and global hotkeys. Runs first every frame (priority -10).
 import { useFrame } from '@react-three/fiber';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { game } from '../core/game';
 import { input } from '../core/input';
 import { U } from '../core/uniforms';
@@ -20,8 +20,11 @@ export function GameSystems() {
     if (debug.shot) s.start();
   }, []);
 
+  const boot = useMemo(() => ({ frames: 0 }), []);
   useFrame((_, rawDt) => {
     const s = G();
+    // ready once ~20 frames have rendered after the world built (shader compiles happen in the first ones)
+    if (!s.ready && ++boot.frames > 20) useGame.setState({ ready: true });
     const live = s.started && !s.paused;
     const dt = live ? Math.min(rawDt, 1 / 20) : 0;
     game.dt = dt;
