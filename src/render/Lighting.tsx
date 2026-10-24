@@ -20,7 +20,8 @@ const MODES = {
 const SHADOW_HALF = 22;
 const SHADOW_RES = 2048;
 
-const _a = new Color(), _b = new Color(), _d = new Vector3(), _dn = new Vector3();
+const _a = new Color(), _b = new Color(), _d = new Vector3(), _r = new Vector3(), _u = new Vector3(), _s = new Vector3();
+const UP = new Vector3(0, 1, 0);
 
 export function Lighting() {
   const scene = useThree((s) => s.scene);
@@ -65,13 +66,16 @@ export function Lighting() {
     L.sun.color.copy(_a.setHex(D.sun)).lerp(_b.setHex(N.sun), n);
     L.sun.intensity = lerp(D.sunI, N.sunI, n);
 
-    // sun follows the camera target; snap to shadow texels so shadows don't crawl
+    // sun follows the camera target, snapped to whole shadow texels in light space so shadows don't crawl
     _d.set(lerp(D.sunDir[0], N.sunDir[0], n), lerp(D.sunDir[1], N.sunDir[1], n), lerp(D.sunDir[2], N.sunDir[2], n)).normalize();
     const t = game.cam.target;
     const texel = (SHADOW_HALF * 2) / SHADOW_RES;
-    const tx = Math.round(t.x / texel) * texel, tz = Math.round(t.z / texel) * texel, ty = Math.round(t.y / texel) * texel;
-    L.sun.target.position.set(tx, ty, tz);
-    L.sun.position.set(tx + _d.x * 60, ty + _d.y * 60, tz + _d.z * 60);
+    _r.crossVectors(UP, _d).normalize();   // shadow camera x
+    _u.crossVectors(_d, _r);               // shadow camera y
+    const sx = Math.round(t.dot(_r) / texel) * texel, sy = Math.round(t.dot(_u) / texel) * texel, sz = t.dot(_d);
+    _s.copy(_r).multiplyScalar(sx).addScaledVector(_u, sy).addScaledVector(_d, sz);
+    L.sun.target.position.copy(_s);
+    L.sun.position.copy(_s).addScaledVector(_d, 60);
     L.sun.target.updateMatrixWorld();
 
     // lamp pool: every 0.25 s pick the lamps nearest the camera target
@@ -91,7 +95,6 @@ export function Lighting() {
       light.color.setHex(lamp.color);
       light.intensity = lamp.intensity * on * fl;
       light.distance = lamp.distance;
-      _dn.set(lamp.x - t.x, 0, lamp.z - t.z);
     }
   }, -1);
 
