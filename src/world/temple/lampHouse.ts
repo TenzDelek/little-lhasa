@@ -5,7 +5,7 @@ import type { Parts } from '../../core/geom';
 import { PAL } from '../../core/palette';
 import type { Acc } from './acc';
 import { CY, LAMPHOUSE } from './site';
-import { INK, SOOT, WHITEWASH, pemaFrieze, shade } from './util';
+import { INK, SOOT, WHITEWASH, pemaFrieze, shade, tiledRoof } from './util';
 
 const BRASS = 0xc89a3a;
 const BRASS_DARK = 0x8a6424;
@@ -37,7 +37,7 @@ export function buildLampHouse(acc: Acc) {
   // pema frieze + roof slab + chimney hoods (soot)
   B.group([cx, 0, zf], Math.PI, () => pemaFrieze(B, -W / 2 - 0.05, W / 2 + 0.05, CY + PL + H - 0.42, CY + PL + H - 0.06, 0));
   B.box(W + 0.5, 0.14, D + 0.5, [cx, CY + PL + H + 0.07, cz], shade(PAL.templeMaroon, -0.3));
-  B.box(W + 0.3, 0.06, D + 0.3, [cx, CY + PL + H + 0.17, cz], 0x8f8a80);
+  tiledRoof(B, cx - W / 2 - 0.15, cz - D / 2 - 0.15, cx + W / 2 + 0.15, cz + D / 2 + 0.15, CY + PL + H + 0.2, 34, { base: 0.06, stains: 2, tile: 0.55 });
   for (const x of [cx - 1.2, cx + 1.2]) {
     B.box(0.6, 0.5, 0.6, [x, CY + PL + H + 0.45, cz + 0.3], SOOT);
     B.box(0.8, 0.08, 0.8, [x, CY + PL + H + 0.74, cz + 0.3], 0x2a2624);
@@ -60,12 +60,15 @@ export function buildLampHouse(acc: Acc) {
     F.groupEuler([x, (gy0 + gy1) / 2 + 0.2, zf + 0.05], [0, 0, 0.7], () => F.box(0.03, 0.4, 0.01, [0, 0, 0], 0xcfe0ea));
   }
   // interior: warm back wall (glows at night), stepped lamp tiers
-  B.box(W - 0.6, H - 0.4, 0.04, [cx, CY + PL + (H - 0.4) / 2, zb - 0.32], 0x6b4a2a, { emit: 0xffa040, emitNight: true, emitIntensity: 0.55 });
+  // (the walls inside are warmed by hundreds of flames: they glow at night so the glazing reads as a lantern)
+  B.box(W - 0.6, H - 0.4, 0.04, [cx, CY + PL + (H - 0.4) / 2, zb - 0.32], 0x6b4a2a, { emit: 0xffa040, emitNight: true, emitIntensity: 1.1 });
+  for (const sx of [-1, 1]) B.box(0.04, H - 0.5, D - 0.7, [cx + sx * (W / 2 - 0.32), CY + PL + (H - 0.5) / 2, cz + 0.1], 0x6b4a2a, { emit: 0xff9a40, emitNight: true, emitIntensity: 0.7 });
+  B.box(W - 0.62, 0.04, D - 0.6, [cx, CY + PL + H - 0.52, cz + 0.05], 0x4a3424, { emit: 0xff9a40, emitNight: true, emitIntensity: 0.5 });
   const tiers = [{ y: 0.95, z: zf + 0.75 }, { y: 1.3, z: zf + 1.45 }, { y: 1.65, z: zf + 2.15 }, { y: 2.0, z: zf + 2.85 }];
   let id = 0;
   const r = acc.r;
   for (const [ti, t] of tiers.entries()) {
-    B.box(W - 0.6, t.y, 0.7, [cx, CY + PL + t.y / 2, t.z], ti % 2 ? 0x5a4a3a : 0x4e4034);
+    B.box(W - 0.6, t.y, 0.7, [cx, CY + PL + t.y / 2, t.z], ti % 2 ? 0x5a4a3a : 0x4e4034, { emit: 0xff9a40, emitNight: true, emitIntensity: 0.28 });
     B.box(W - 0.6, 0.04, 0.72, [cx, CY + PL + t.y - 0.02, t.z], BRASS_DARK);
     const n = 11 - ti;
     for (let i = 0; i < n; i++) {
@@ -75,7 +78,9 @@ export function buildLampHouse(acc: Acc) {
       if (r() < 0.62) acc.butterLamps.push({ id: `deco-lamp-${id++}`, x, y: top, z: t.z - 0.12 + (i % 2) * 0.16, interactive: false, lit: true });
     }
   }
-  acc.lamps.push({ x: cx, y: CY + PL + 1.6, z: cz, color: PAL.butterFlame, intensity: 2.6, distance: 6, day: true, flicker: 0.2 });
+  acc.lamps.push({ x: cx, y: CY + PL + 1.6, z: cz, color: PAL.butterFlame, intensity: 3.2, distance: 6, day: true, flicker: 0.2 });
+  // the warm spill through the glazing onto the shelf and the flagstones in front (night)
+  acc.lamps.push({ x: cx, y: CY + 1.5, z: zf - 1.5, color: PAL.butterFlame, intensity: 4.5, distance: 7, flicker: 0.15 });
 
   // outside offering shelf with 10 lamps under a small tin canopy
   const shelfZ = zf - 0.42, shelfTop = CY + 0.86;

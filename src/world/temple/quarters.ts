@@ -5,7 +5,7 @@ import { PAL } from '../../core/palette';
 import type { Parts } from '../../core/geom';
 import type { Acc } from './acc';
 import { CY } from './site';
-import { INK, WHITEWASH, lbox, mixHex, shade, tibWindow, type Frame } from './util';
+import { INK, WHITEWASH, lbox, mixHex, shade, tibWindow, tiledRoof, type Frame } from './util';
 import { pick } from '../../core/math';
 
 const FH = 2.8;
@@ -52,9 +52,8 @@ function block(acc: Acc, b: Block) {
     for (const sx of [-1, 1]) B.box(0.14, 0.5, D, [sx * (W / 2 - 0.02), 0.3 + H + 0.25, 0], wall);
     for (const sz of [-1, 1]) B.box(W + 0.16, 0.08, 0.2, [0, 0.3 + H + 0.54, sz * (D / 2 - 0.05)], PAL.templeMaroon);
     for (const sx of [-1, 1]) B.box(0.2, 0.08, D + 0.16, [sx * (W / 2 - 0.02), 0.3 + H + 0.54, 0], PAL.templeMaroon);
-    // roof surface: concrete with a few patched slabs
-    B.box(W - 0.2, 0.04, D - 0.2, [0, 0.3 + H + 0.02, 0], 0x857c6e);
-    for (let i = 0; i < Math.floor(W / 2.5); i++) B.box(0.9 + r() * 0.8, 0.02, 0.8 + r() * 0.6, [-W / 2 + 1 + i * 2.5 + r(), 0.3 + H + 0.05, (r() - 0.5) * (D - 1.4)], r() < 0.5 ? 0x766e61 : 0x958c7c);
+    // roof surface: red-oxide tiles with rain stains
+    tiledRoof(B, -W / 2 + 0.1, -D / 2 + 0.1, W / 2 - 0.1, D / 2 - 0.1, 0.3 + H + 0.05, 40 + b.seed, { stains: Math.floor(W / 4), base: 0.05 });
     // pilasters at the corridor front, every ~3 m
     const nb = Math.max(2, Math.round(W / 3));
     for (let i = 0; i <= nb; i++) {

@@ -11,7 +11,8 @@ import type { Node } from 'three/webgpu';
 import { float, positionWorld, smoothstep, vec3, vec4, cameraPosition, vec2 } from 'three/tsl';
 import { vnoise12 } from '../../core/tsl';
 import { WORLD_BOUNDS } from '../layout';
-import { groundY } from '../terrain';
+import { groundY, worldMask } from '../terrain';
+import { sampleFields, type FieldSample } from './fields';
 import { clamp, fbm2, hash2, lerp, rng, smooth, vnoise2 } from '../../core/math';
 import { mat } from '../../core/materials';
 import { PAL } from '../../core/palette';
@@ -48,15 +49,15 @@ export function landHeight(x: number, z: number): number {
   // fall to the Kangra valley in the south and south-west
   if (z > 190) m -= Math.min(140, ((z - 190) / 210) ** 1.3 * 100);
   if (x < -120) m -= ((-120 - x) / 380) ** 1.3 * 40 * smooth(-250, 100, z);
-  // Triund ridge (forested)
+  // Triund ridge (forested): kept low so the snow range rises clear above it in the chase camera
   const tz = triundZ(x);
-  m += Math.exp(-(((z - tz) / 70) ** 2)) * (12 + (fbm2(x * 0.01, 3.3, 2) - 0.5) * 14);
-  // Dhauladhar
+  m += Math.exp(-(((z - tz) / 70) ** 2)) * (3 + (fbm2(x * 0.01, 3.3, 2) - 0.5) * 8);
+  // Dhauladhar: a steep wall rising from behind the ridge (narrow southern flank, so its foot is hidden)
   const cz = crestZ(x);
-  const prof = Math.exp(-(((z - cz) / (z > cz ? 95 : 160)) ** 2));
-  const hr = 46 + (fbm2(x * 0.0035 + 9, 1.7, 3) - 0.5) * 40;
+  const prof = Math.exp(-(((z - cz) / (z > cz ? 95 : 118)) ** 2));
+  const hr = 41 + (fbm2(x * 0.0035 + 9, 1.7, 3) - 0.5) * 34;
   const jag = ridged(x * 0.012 + 3, z * 0.012 - 8, 4);
-  m += prof * (hr + (jag - 0.45) * 48);
+  m += prof * (hr + (jag - 0.45) * 44);
   // far Shivalik hills on the southern horizon
   m += Math.exp(-(((z - 770) / 95) ** 2)) * (105 + fbm2(x * 0.006, 8.1, 2) * 50);
   return lerp(edge, m, smooth(0, 110, d));
@@ -103,6 +104,9 @@ function faceColor(cx: number, cy: number, cz: number, nx: number, ny: number, n
   const n = vnoise2(cx * 0.03 + 4, cz * 0.03 - 9);
   const k = hash2(Math.floor(cx / 7), Math.floor(cz / 7));
   if (n > 0.72 && ny > 0.88 && cz > -200) return k > 0.5 ? 0x52703a : 0x5f7d40; // clearings
+  // Triund's grassy lower slopes in the view north of the viewpoint (no trees are planted there either)
+  const wedge = 40 + (-95 - cz) * 0.8 + (vnoise2(cx * 0.05 + 1.7, cz * 0.05) - 0.5) * 36;
+  if (cz < -100 && cz > -250 + (n - 0.5) * 60 && Math.abs(cx - 28) < wedge && ny > 0.75) return k > 0.6 ? 0x5a7a3c : k > 0.2 ? 0x4f6e36 : 0x46632f;
   return k > 0.6 ? PAL.deodarDark : k > 0.15 ? 0x2a4430 : 0x34503a;
 }
 
@@ -181,6 +185,8 @@ function deodar(pos: number[], col: number[], x: number, y: number, z: number, h
   }
 }
 
+const _fs = {} as FieldSample;
+
 export function buildBackdropTrees(): Mesh {
   const pos: number[] = [], col: number[] = [];
   const r = rng(9001);
@@ -188,10 +194,15 @@ export function buildBackdropTrees(): Mesh {
   let n = 0;
   for (let z = -390; z < 420; z += STEP) for (let x = -380; x < 480; x += STEP) {
     const px = x + r() * STEP, pz = z + r() * STEP;
-    // only beyond the town's bounds (the hillside module plants the forest inside the rim)
+    // beyond the diorama rim (the hillside module plants the forest inside it); inside the bounds only where
+    // the land is outside the diorama, off the painted road extensions and goat paths
     const ox = Math.max(B.x0 - px, 0, px - B.x1), oz = Math.max(B.z0 - pz, 0, pz - B.z1);
     const dOut = Math.hypot(ox, oz);
-    if (dOut < 12 + vnoise2(px * 0.04 + 2, pz * 0.04 + 5) * 40) continue;
+    if (dOut === 0) {
+      if (worldMask(px, pz) > 0.12) continue;
+      const f = sampleFields(px, pz, _fs);
+      if (f.asphalt < 3 || f.path > 0.2) continue;
+    } else if (dOut < vnoise2(px * 0.04 + 2, pz * 0.04 + 5) * 24) continue;
     // keep the view north from the viewpoint / Dharamkot Road open: Triund's grassy slopes
     if (pz < -95 && Math.abs(px - 28) < 40 + (-95 - pz) * 0.8) continue;
     if (pz < -200 && r() < 0.6) continue;
@@ -203,7 +214,7 @@ export function buildBackdropTrees(): Mesh {
     if (r() > 0.72) continue;
     const y = landHeight(px, pz);
     if (y < -40 || y > 30) continue;
-    const h = 8 + r() * 6 + Math.min(4, dOut * 0.02);
+    const h = (dOut === 0 ? 6.5 : 8) + r() * 6 + Math.min(4, dOut * 0.02);
     const k = r();
     deodar(pos, col, px, y - 0.3, pz, h, k < 0.5 ? PAL.deodarDark : k < 0.85 ? PAL.deodar : 0x26402c, k < 0.5 ? PAL.deodar : PAL.deodarLight);
     n++;

@@ -3,6 +3,9 @@ import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
 import { game } from '../core/game';
 import { input } from '../core/input';
+import { interactions } from '../core/interact';
+import { collision } from '../core/collision';
+import { groundY, walkable } from '../world/terrain';
 import { U } from '../core/uniforms';
 import { G, useGame } from './store';
 import { initQuests } from './quests';
@@ -11,8 +14,8 @@ import { debug } from './debug';
 
 export function GameSystems() {
   useEffect(() => initQuests(), []);
-  // console handles for testing: __game (per-frame state), __store (zustand)
-  useEffect(() => { Object.assign(window, { __game: game, __store: useGame }); }, []);
+  // console handles for testing: __game (per-frame state), __store (zustand), __interact / __collision (QA bots)
+  useEffect(() => { Object.assign(window, { __game: game, __store: useGame, __interact: interactions, __collision: collision, __terrain: { groundY, walkable } }); }, []);
   useEffect(() => {
     const s = G();
     if (debug.night && !s.night) s.toggleNight();

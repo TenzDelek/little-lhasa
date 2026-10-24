@@ -35,12 +35,20 @@ const CELL = 8;
 // unique per cell for |i|, |j| < 4096 (cells are 8 m, so ±32 km): no unrelated cells share a bucket
 const key = (i: number, j: number) => (i + 4096) * 8192 + (j + 4096);
 
-/** Closest point on a collider to (px, pz) in xz, and whether p is inside. */
+/** Result of closest(): one shared scratch object (no per-call allocation) — read it before the next call. */
+const _hit = { cx: 0, cz: 0, inside: false, nx: 0, nz: 0, depth: 0 };
+const setHit = (cx: number, cz: number, inside: boolean, nx: number, nz: number, depth: number) => {
+  _hit.cx = cx; _hit.cz = cz; _hit.inside = inside; _hit.nx = nx; _hit.nz = nz; _hit.depth = depth;
+  return _hit;
+};
+
+/** Closest point on a collider to (px, pz) in xz, and whether p is inside. Returns the shared `_hit`. */
 function closest(c: Collider, px: number, pz: number) {
   if (c.kind === 'circle') {
-    const dx = px - c.x, dz = pz - c.z;
-    const d = Math.hypot(dx, dz) || 1e-6;
-    return { cx: c.x + (dx / d) * c.r, cz: c.z + (dz / d) * c.r, inside: d < c.r, nx: dx / d, nz: dz / d, depth: c.r - d };
+    let dx = px - c.x, dz = pz - c.z;
+    if (dx * dx + dz * dz < 1e-12) { dx = 1e-6; dz = 0; } // dead centre: pick a side rather than a zero push
+    const d = Math.hypot(dx, dz);
+    return setHit(c.x + (dx / d) * c.r, c.z + (dz / d) * c.r, d < c.r, dx / d, dz / d, c.r - d);
   }
   const cs = Math.cos(c.rot), sn = Math.sin(c.rot);
   // world → local: rotate by −rot about y
@@ -62,7 +70,7 @@ function closest(c: Collider, px: number, pz: number) {
   // local → world: rotate by +rot
   const wx = qx * cs + qz * sn, wz = -qx * sn + qz * cs;
   const nx = nlx * cs + nlz * sn, nz = -nlx * sn + nlz * cs;
-  return { cx: c.x + wx, cz: c.z + wz, inside, nx, nz, depth };
+  return setHit(c.x + wx, c.z + wz, inside, nx, nz, depth);
 }
 
 function footprintRadius(c: Collider) {
@@ -112,11 +120,13 @@ class CollisionWorld {
     out.length = 0;
     const i0 = Math.floor((x - r) / CELL), i1 = Math.floor((x + r) / CELL);
     const j0 = Math.floor((z - r) / CELL), j1 = Math.floor((z + r) / CELL);
-    const seen = new Set<Collider>();
+    const single = i0 === i1 && j0 === j1;
+    if (!single) _seen.clear();
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
       const list = this.grid.get(key(i, j));
       if (!list) continue;
-      for (const c of list) if (!seen.has(c)) { seen.add(c); out.push(c); }
+      if (single) { for (const c of list) out.push(c); continue; }
+      for (const c of list) if (!_seen.has(c)) { _seen.add(c); out.push(c); }
     }
     return out;
   }
@@ -142,7 +152,7 @@ class CollisionWorld {
   resolve(p: { x: number; z: number }, r: number, feetY: number, h: number, stepUp: number): boolean {
     let hit = false;
     const lo = feetY + stepUp, hi = feetY + h;
-    for (let iter = 0; iter < 3; iter++) {
+    for (let iter = 0; iter < 4; iter++) {
       let moved = false;
       const near = this.query(p.x, p.z, r + 0.5, _q);
       for (const c of near) {
@@ -153,13 +163,56 @@ class CollisionWorld {
       }
       for (const c of this.dynamic) {
         if (c.y1 <= lo || c.y0 >= hi) continue;
-        const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz) || 1e-6;
+        let dx = p.x - c.x, dz = p.z - c.z;
+        if (dx * dx + dz * dz < 1e-12) { dx = 1e-6; dz = 0; }
+        const d = Math.hypot(dx, dz);
         const pen = r + c.r - d;
         if (pen > 0) { p.x += (dx / d) * pen; p.z += (dz / d) * pen; moved = hit = true; }
       }
       if (!moved) break;
     }
     return hit;
+  }
+
+  /**
+   * Deepest overlap (m) of a cylinder with any static collider spanning (feetY + stepUp, feetY + h); 0 when
+   * free. Used after resolve() to spot a squeeze (a gap narrower than the cylinder, where pushes cancel out).
+   */
+  penetration(p: { x: number; z: number }, r: number, feetY: number, h: number, stepUp: number): number {
+    const lo = feetY + stepUp, hi = feetY + h;
+    let worst = 0;
+    for (const c of this.query(p.x, p.z, r + 0.5, _q)) {
+      if (c.y1 <= lo || c.y0 >= hi) continue;
+      const k = closest(c, p.x, p.z);
+      const pen = k.inside ? k.depth + r : r + k.depth;
+      if (pen > worst) worst = pen;
+    }
+    return worst;
+  }
+
+  /**
+   * Falling from fromY to toY: if a collider top the cylinder is sinking past (it starts to block during this
+   * drop) leaves no room to stand beside it — the cylinder would end wedged in a gap narrower than itself, e.g.
+   * between a stair landing and a house wall — return that top and write into `out` a position nudged onto its
+   * edge so supportY() keeps it there. Returns -Infinity when the drop is clear.
+   */
+  squeezeTop(x: number, z: number, r: number, fromY: number, toY: number, h: number, stepUp: number, out: { x: number; z: number }): number {
+    let top = -Infinity, best: Collider | null = null;
+    for (const c of this.query(x, z, r + 0.5, _q2)) {
+      // only things that begin to block during this drop (already-blocking ones were resolved sideways)
+      if (c.y1 > fromY + stepUp || c.y1 <= toY + stepUp || c.y0 >= toY + h || c.y1 <= top) continue;
+      const k = closest(c, x, z);
+      if (k.inside || -k.depth < r) { top = c.y1; best = c; }
+    }
+    if (!best) return -Infinity;
+    out.x = x; out.z = z;
+    this.resolve(out, r, toY, h, stepUp);
+    if (this.penetration(out, r, toY, h, stepUp) <= 0.03) return -Infinity; // room to fall beside it
+    // land on its edge: move the centre to (just inside) the nearest point of its footprint
+    const k = closest(best, x, z);
+    if (k.inside) { out.x = x; out.z = z; }
+    else { out.x = k.cx - k.nx * 0.03; out.z = k.cz - k.nz * 0.03; }
+    return top;
   }
 
   /** Lowest collider bottom above `fromY` overlapping the circle (for head bumps); Infinity if none. */
@@ -197,6 +250,9 @@ class CollisionWorld {
 }
 
 const _q: Collider[] = [];
+const _q2: Collider[] = [];
+/** query()'s de-duplication set, reused (queries never nest). */
+const _seen = new Set<Collider>();
 export const collision = new CollisionWorld();
 
 /** True if a point can be walked to (inside the town rim). */

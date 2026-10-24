@@ -22,6 +22,7 @@ export const PLAYER = {
 
 const st = { coyote: 0, jumpBuf: 0, fallV: 0 };
 const _prev = { x: 0, z: 0 };
+const _sq = { x: 0, z: 0 };
 
 /** Advance the player by dt. `frozen` stops input (dialogue). Returns the actual horizontal speed. */
 export function stepPlayer(dt: number, frozen: boolean): number {
@@ -63,6 +64,14 @@ export function stepPlayer(dt: number, frozen: boolean): number {
     _prev.x = pos.x; _prev.z = pos.z;
     pos.x += vel.x * h; pos.z += vel.z * h;
     collision.resolve(pos, PLAYER.radius, pos.y, PLAYER.height, PLAYER.stepUp);
+    // squeezed (a gap narrower than the boy, an acute corner, an NPC shoving him into a wall): the pushes
+    // cancel and he would end inside a wall — undo this sub-step's move if that leaves him better off
+    const pen = collision.penetration(pos, PLAYER.radius, pos.y, PLAYER.height, PLAYER.stepUp);
+    if (pen > 0.03) {
+      const cx = pos.x, cz = pos.z;
+      pos.x = _prev.x; pos.z = _prev.z;
+      if (collision.penetration(pos, PLAYER.radius, pos.y, PLAYER.height, PLAYER.stepUp) >= pen) { pos.x = cx; pos.z = cz; }
+    }
     if (!walkable(pos.x, pos.z)) {
       // slide along the rim: try each axis alone
       if (walkable(pos.x, _prev.z)) pos.z = _prev.z;
@@ -70,13 +79,18 @@ export function stepPlayer(dt: number, frozen: boolean): number {
       else { pos.x = _prev.x; pos.z = _prev.z; }
     }
     // vertical
-    const support = collision.supportY(pos.x, pos.z, PLAYER.radius * 0.8, pos.y, PLAYER.stepUp);
+    let support = collision.supportY(pos.x, pos.z, PLAYER.radius * 0.8, pos.y, PLAYER.stepUp);
     let ny = pos.y + vel.y * h;
     if (vel.y > 0) {
       const ceil = collision.ceilingY(pos.x, pos.z, PLAYER.radius * 0.8, pos.y + PLAYER.height - 0.05);
       if (ny + PLAYER.height > ceil) { ny = ceil - PLAYER.height; vel.y = 0; }
     }
     if (wasGrounded && vel.y <= 0 && support < pos.y && pos.y - support < 0.5) ny = support; // stick to slopes / step down
+    if (ny < pos.y) {
+      // sinking past a ledge into a gap too narrow to stand in: land on the ledge's edge instead of wedging
+      const top = collision.squeezeTop(pos.x, pos.z, PLAYER.radius, pos.y, ny, PLAYER.height, PLAYER.stepUp, _sq);
+      if (top > ny) { ny = top; support = top; pos.x = _sq.x; pos.z = _sq.z; }
+    }
     if (ny <= support) {
       if (!p.grounded && st.fallV < -7.5) sfx('land');
       ny = support;

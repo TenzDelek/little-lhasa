@@ -84,7 +84,7 @@ export function newGame() {
 
 /** Begin (or continue) the walk. */
 export function begin() {
-  if (G().started) return;
+  if (G().started || !G().ready) return; // not before the town has built (the loading paper is still up)
   G().start();
   sfx('ui');
   (document.activeElement as HTMLElement | null)?.blur?.();

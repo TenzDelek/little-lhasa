@@ -14,19 +14,19 @@ export function Dock() {
   const muted = useGame((s) => s.muted);
   return (
     <nav className="dock" aria-label="Game controls">
-      <button type="button" className="btn" aria-pressed={night} title="Day / night (N)"
+      <button type="button" className="btn" aria-pressed={night} title="Day / night (N)" aria-label="Day / night"
         onClick={(e) => { input.press('night'); blurIfPointer(e); }}>
         <DayGlyph night={night} />
         <span><span className={night ? 'btn-off' : undefined}>Day</span><span className="btn-off"> / </span><span className={night ? undefined : 'btn-off'}>Night</span></span>
       </button>
-      <button type="button" className="btn" title="Camera (C)" onClick={(e) => { input.press('camera'); blurIfPointer(e); }}>
-        <span className="dot" aria-hidden="true" />Camera <span className="btn-val">{cam === 'iso' ? 'Iso' : 'Chase'}</span>
+      <button type="button" className="btn" title="Camera (C)" aria-label={`Camera: ${cam === 'iso' ? 'diorama' : 'chase'}`} onClick={(e) => { input.press('camera'); blurIfPointer(e); }}>
+        <span className="dot" aria-hidden="true" /><span className="btn-word">Camera</span><span className="btn-val">{cam === 'iso' ? 'Iso' : 'Chase'}</span>
       </button>
-      <button type="button" className="btn" aria-pressed={!muted} title="Sound (M)" onClick={(e) => { G().toggleMute(); blurIfPointer(e); }}>
-        <SoundGlyph muted={muted} />Sound <span className="btn-val">{muted ? 'Off' : 'On'}</span>
+      <button type="button" className="btn" aria-pressed={!muted} title="Sound (M)" aria-label="Sound" onClick={(e) => { G().toggleMute(); blurIfPointer(e); }}>
+        <SoundGlyph muted={muted} /><span className="btn-word">Sound</span><span className="btn-val">{muted ? 'Off' : 'On'}</span>
       </button>
-      <button type="button" className="btn" title="Pause (Esc)" onClick={(e) => { G().setPaused(true); blurIfPointer(e); }}>
-        <PauseGlyph />Pause
+      <button type="button" className="btn" title="Pause (Esc)" aria-label="Pause" onClick={(e) => { G().setPaused(true); blurIfPointer(e); }}>
+        <PauseGlyph /><span className="btn-word">Pause</span>
       </button>
     </nav>
   );

@@ -2,14 +2,16 @@
 // Bhagsu and Dharamkot Road, tied to rooftops / façades, power poles or slim bamboo flag poles; and long lines
 // running down the hillside off Dharamkot Road from tall poles at the road edge to trees and stone cairns
 // below. Some strings are brand new, many sun-bleached, a few in tatters.
+import { Vector3 } from 'three';
 import type { V3 } from '../../core/geom';
 import { PAL } from '../../core/palette';
 import { pick } from '../../core/math';
 import { groundY, worldMask, roadQuery } from '../terrain';
-import { srng, beam } from '../../kit/street';
+import { srng, beam, sagAt } from '../../kit/street';
+import { collision, type Collider } from '../../core/collision';
 import type { FlagLine } from '../../kit/flags';
 import { type PCtx, count, solidCircle } from './ctx';
-import { DHARAMKOT, JOGIWARA, TEMPLE_RD, BHAGSU, edgePt, freeRange, postPt, stripOK, territoryOK, type EdgePt } from './plan';
+import { DHARAMKOT, JOGIWARA, TEMPLE_RD, BHAGSU, colliderDist, edgePt, freeRange, postPt, stripOK, territoryOK, type EdgePt } from './plan';
 import { safeSag } from './power';
 import type { Road } from '../layout';
 
@@ -112,6 +114,8 @@ export function buildRoadFlags(c: PCtx) {
       if (span < 3 || span > 17) continue;
       const sag = safeSag(A, B, span * (0.05 + r() * 0.05), 5.0);
       if (sag < 0) continue;
+      // not through a balcony, sign or the corner of a building on the diagonal
+      if (!clearLine(A, B, sag, 0.12, 0.88, 0.35)) { count(c, 'flagLineBlocked'); continue; }
       c.flags.push({ a: A, b: B, sag, age: ageOf(r), size: 0.21 + r() * 0.05, spacing: 0.27 + r() * 0.07, seed: Math.floor(r() * 1e6) });
       count(c, 'flagLines');
       // dense stretches: often a second string from the same tie point, fanning out
@@ -121,7 +125,7 @@ export function buildRoadFlags(c: PCtx) {
         if (C2) {
           const sp2 = Math.hypot(C2[0] - A[0], C2[2] - A[2]);
           const sg2 = safeSag(A, C2, sp2 * 0.07, 5.0);
-          if (sp2 > 3 && sp2 < 17 && sg2 > 0) {
+          if (sp2 > 3 && sp2 < 17 && sg2 > 0 && clearLine(A, C2, sg2, 0.12, 0.88, 0.35)) {
             c.flags.push({ a: A, b: C2, sag: sg2, age: ageOf(r), size: 0.22, seed: Math.floor(r() * 1e6) });
             count(c, 'flagLines');
           }
@@ -131,52 +135,94 @@ export function buildRoadFlags(c: PCtx) {
   }
 }
 
+const _sv = new Vector3();
+const _cq: Collider[] = [];
+/**
+ * Does a sagging string from a to b pass clear (at least `below` m) over every building and wall on the way?
+ * Trees don't count (lungta tangled in a crown is right). Tested over t ∈ [t0, t1] — the ends sit on the wall /
+ * pole / cairn / crown they are tied to.
+ */
+function clearLine(a: V3, b: V3, sag: number, t0: number, t1: number, below: number): boolean {
+  for (let k = 0; k <= 12; k++) {
+    sagAt(a, b, sag, t0 + (t1 - t0) * (k / 12), _sv);
+    for (const q of collision.query(_sv.x, _sv.z, 0.8, _cq)) {
+      if (q.kind === 'circle' || q.tag === 'flagpole' || q.y1 < _sv.y - below || q.y0 > _sv.y + 0.1) continue;
+      if (colliderDist(q, _sv.x, _sv.z) < 0.2) return false;
+    }
+  }
+  return true;
+}
+/** clearLine for a string down the slope, ignoring its last `skip` metres. (1.6 m: the tin roofs stand above
+ *  the wall-top colliders.) */
+const clearDown = (a: V3, b: V3, sag: number, skip: number) =>
+  clearLine(a, b, sag, 0.06, Math.max(0.4, 1 - skip / Math.max(Math.hypot(b[0] - a[0], b[2] - a[2]), 1e-3)), 1.6);
+
 /** Long strings down the hillside below Dharamkot Road: pole at the road edge → trees / cairns on the slope. */
 export function buildHillFlags(c: PCtx) {
   const r = srng(9393);
   const road = DHARAMKOT;
   const [s0, s1] = freeRange(road);
-  for (let s = s0 + 8; s < s1 - 6; s += 12 + r() * 6) {
+  let last = -99;
+  for (let s = s0 + 8; s < s1 - 6; s += 2.5) {
+    if (s - last < 12) continue;
     // downhill side: the side whose ground 9 m out is lower
     const L = edgePt(road, s, -1, 9), R = edgePt(road, s, 1, 9);
     const side: 1 | -1 = L.y < R.y ? -1 : 1;
     const p = flagPoleSpot(c, road, s, side);
     if (!p) continue;
-    const top = flagPole(c, p, 8.4 + r() * 1.2, 4321 + Math.round(s * 11));
+    const H = 8.4 + r() * 1.2;
+    // Plan the strings first (from the pole's nominal tie point) and plant the pole only where at least two can
+    // run down the slope clear of the houses below the road — no bare poles, no strings through roofs.
+    const top0: V3 = [p.x, p.y + H - 0.45, p.z];
     const lines: FlagLine[] = [];
+    const cairns: [number, number, number][] = [];
     // trees down the slope
     const trees = c.obs.circles(p.x, p.z, 22, 'hillside-tree').filter((t) => {
       const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz);
-      return d > 6 && (dx * p.ox + dz * p.oz) / d > 0.45 && t.y1 - groundY(t.x, t.z) > 2.5;
+      return d > 6 && (dx * p.ox + dz * p.oz) / d > 0.35 && t.y1 - groundY(t.x, t.z) > 2.5;
     });
     trees.sort(() => r() - 0.5);
-    for (const t of trees.slice(0, 2)) {
+    for (const t of trees) {
+      if (lines.length >= 2) break;
       const b: V3 = [t.x - (t.x - p.x) * 0.03, t.y1 - 0.5, t.z - (t.z - p.z) * 0.03];
-      const span = Math.hypot(b[0] - top[0], b[1] - top[1], b[2] - top[2]);
-      lines.push({ a: top, b, sag: span * (0.04 + r() * 0.03), age: ageOf(r), size: 0.24, seed: Math.floor(r() * 1e6) });
+      const span = Math.hypot(b[0] - top0[0], b[1] - top0[1], b[2] - top0[2]);
+      const sag = span * (0.04 + r() * 0.03);
+      if (!clearDown(top0, b, sag, 1.6)) continue;
+      lines.push({ a: top0, b, sag, age: ageOf(r), size: 0.24, seed: Math.floor(r() * 1e6) });
     }
     // cairns on the open slope
     const want = 6 - lines.length;
     const base = Math.atan2(p.oz, p.ox);
-    for (let k = 0, made = 0; k < 18 && made < want; k++) {
-      const a = base + (r() - 0.5) * 2.2, d = 10 + r() * 12;
+    for (let k = 0; k < 24 && cairns.length < want; k++) {
+      const a = base + (r() - 0.5) * 2.4, d = 9 + r() * 13;
       const x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
       if (worldMask(x, z) < 0.7 || !territoryOK(x, z, 1)) continue;
       if (roadQuery(x, z).edge < 2) continue;
-      if (c.obs.blocked(x, z, 0.6, groundY(x, z) - 1, groundY(x, z) + 6)) continue;
-      if (c.obs.structureDist(x, z, 2, 2) < 1.5) continue;
       const gy = groundY(x, z);
+      if (gy > p.y - 0.5) continue; // down the slope, not up a bank
+      if (c.obs.blocked(x, z, 0.6, gy - 1, gy + 6)) continue;
+      if (c.obs.structureDist(x, z, 2, 2) < 1.5) continue;
+      if (cairns.some(([cx, , cz]) => Math.hypot(cx - x, cz - z) < 2.5)) continue;
       const b: V3 = [x, gy + 0.35, z];
-      const span = Math.hypot(b[0] - top[0], b[1] - top[1], b[2] - top[2]);
-      lines.push({ a: top, b, sag: span * (0.03 + r() * 0.03), age: ageOf(r), size: 0.24, seed: Math.floor(r() * 1e6) });
-      // small cairn + stake the string is tied to
+      const span = Math.hypot(b[0] - top0[0], b[1] - top0[1], b[2] - top0[2]);
+      const sag = span * (0.03 + r() * 0.03);
+      if (!clearDown(top0, b, sag, 2.2)) continue;
+      lines.push({ a: top0, b, sag, age: ageOf(r), size: 0.24, seed: Math.floor(r() * 1e6) });
+      cairns.push([x, gy, z]);
+    }
+    if (lines.length < 2) { count(c, 'hillFlagSpotBlocked'); continue; }
+    last = s;
+    const top = flagPole(c, p, H, 4321 + Math.round(s * 11));
+    for (const ln of lines) ln.a = top;
+    // small cairn + stake each string is tied to
+    for (const [x, gy, z] of cairns) {
       for (let q = 0; q < 4; q++) {
         const sz = 0.14 + r() * 0.12;
         c.small.box(sz, sz * 0.7, sz, [x + (r() - 0.5) * 0.3, gy + sz * 0.25, z + (r() - 0.5) * 0.3], pick(r, [PAL.rock, PAL.rockDark, PAL.templeWhite, PAL.slateLight]), { rot: [r() * 0.4, r() * 3, r() * 0.3] });
       }
       beam(c.small, [x, gy - 0.1, z], [x, gy + 0.45, z], 0.04, PAL.barkLight);
-      made++;
     }
-    if (lines.length) { c.flags.push(...lines); count(c, 'hillFlagLines', lines.length); }
+    c.flags.push(...lines);
+    count(c, 'hillFlagLines', lines.length);
   }
 }

@@ -33,6 +33,15 @@ const busy: { x: number; z: number; r: number }[] = [];
 const free = (x: number, z: number, r: number) => busy.every((b) => Math.hypot(b.x - x, b.z - z) > b.r + r);
 const claim = (x: number, z: number, r: number) => busy.push({ x, z, r });
 
+/** True if anything within `rad` of (x, z) is inside the enclosure (wall, deck). */
+function nearWall(x: number, z: number, rad: number) {
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    if (insideEnclosure(x + Math.cos(a) * rad, z + Math.sin(a) * rad)) return true;
+  }
+  return insideEnclosure(x, z);
+}
+
 /** Lowest ground in a small footprint. */
 function minGround(x: number, z: number, rad: number) {
   let m = Infinity;
@@ -53,11 +62,12 @@ export function buildKora(acc: Acc) {
   maniLhakhang(acc, 97.5);
   sittingPlace(acc, 87.0);
   juniperBurner(acc, 80.6);
-  // mani-stone piles
+  // mani-stone piles and little chortens, all on the inner (right-hand) side so a pilgrim walking clockwise
+  // passes them on the right; spots are chosen where the strip between path and enclosure is wide enough
+  // and clear of the shelters, the burner and the stairways
   const r = acc.r;
-  for (const [s, lat] of [[11, -2.4], [29, -2.5], [46, -2.6], [62, -2.6], [79, 2.4], [105, -2.6], [129, -2.7], [141, 2.8], [157, -2.6], [167, -2.3]] as const) maniPile(acc, s, lat, r);
-  // little chortens
-  for (const [s, lat] of [[21, -2.7], [57, -2.9], [92.5, 2.6], [117, -2.9], [146, -2.9], [164.5, -2.5]] as const) koraChorten(acc, s, lat);
+  for (const [s, lat] of [[27, 2.4], [48.5, 2.6], [67.8, 2.2], [89.5, 2.3], [139, 2.4], [147.5, 2.3], [166.5, 2.2]] as const) maniPile(acc, s, lat, r);
+  for (const [s, lat] of [[31, 2.8], [52, 2.8], [92.5, 2.6], [102.6, 2.4], [143.5, 2.6]] as const) koraChorten(acc, s, lat);
   // carved / painted boulders
   for (const [s, lat, k] of [[53, -3.0, 0], [111, -3.1, 1], [137, -3.2, 2], [16, -3.0, 1]] as const) carvedRock(acc, s, lat, k);
   koraFlags(acc, r);
@@ -112,14 +122,20 @@ function shelter(acc: Acc, s: number, idx: number, n: number) {
   B.box(0.12, 0.12, 0.12, [gx - c.nx * -0.1, fy + 2.05, gz - c.nz * -0.1], PAL.lampWarm, { emit: PAL.lampWarm, emitNight: true, emitIntensity: 1.4 });
 }
 
-/** Small mani lhakhang on the outer side with one big wheel, open toward the path. */
-function maniLhakhang(acc: Acc, s: number) {
+/**
+ * Small mani lhakhang with one big wheel, open toward the path. It stands on the inner (right-hand) side so a
+ * pilgrim walking clockwise passes it on the right; its open front is turned toward the oncoming pilgrims.
+ */
+function maniLhakhang(acc: Acc, s: number, side = 1) {
   const B = acc.big;
-  const c = at(s, -(HALF + 1.9));
-  const yaw = Math.atan2(c.nx, c.nz); // front faces the path (+n from the outer side)
+  const c = at(s, side * (HALF + 2.1));
+  // front: toward the path, turned to greet the pilgrims coming along it (and the default camera)
+  let fx = -side * c.nx - 0.7 * c.tx, fz = -side * c.nz - 0.7 * c.tz;
+  const fl = Math.hypot(fx, fz); fx /= fl; fz /= fl;
+  const yaw = Math.atan2(fx, fz);
   const base = minGround(c.x, c.z, 1.8);
   const path = at(s, 0).y;
-  const fy = Math.max(path, groundY(c.x, c.z)) + 0.32; // one step up, above the grass
+  const fy = Math.max(path, groundY(c.x, c.z)) + 0.26; // one low step up (≤ 0.4 so the boy steps in)
   claim(c.x, c.z, 2.4);
   const W = 2.6, D = 2.4, H = 2.7;
   B.group([c.x, 0, c.z], yaw, () => {
@@ -140,7 +156,7 @@ function maniLhakhang(acc: Acc, s: number) {
     B.box(0.5, 0.08, 0.9, [0, fy + 2.15, -0.25], PAL.templeMaroon);
     B.box(0.5, 0.12, 0.5, [0, fy + 0.06, -0.15], PAL.templeMaroon);
   });
-  acc.wheels.push({ id: `kora-wheel-${++koraWheelN}`, group: 'kora', x: c.x - Math.sin(yaw) * 0.15, y: fy + 1.12, z: c.z - Math.cos(yaw) * 0.15, scale: 2.5, use: [c.x + c.nx * 1.4, fy, c.z + c.nz * 1.4] });
+  acc.wheels.push({ id: `kora-wheel-${++koraWheelN}`, group: 'kora', x: c.x - Math.sin(yaw) * 0.15, y: fy + 1.12, z: c.z - Math.cos(yaw) * 0.15, scale: 2.5, use: [c.x + fx * 1.4, fy, c.z + fz * 1.4] });
   const cs = Math.cos(yaw), sn = Math.sin(yaw);
   const toW = (lx: number, lz: number) => [c.x + lx * cs + lz * sn, c.z - lx * sn + lz * cs] as const;
   const [bx, bz] = toW(0, -D / 2 + 0.125);
@@ -151,7 +167,7 @@ function maniLhakhang(acc: Acc, s: number) {
   }
   acc.box({ x: c.x, z: c.z, w: W + 0.3, d: D + 0.3, rot: yaw, y0: base - 0.3, y1: fy, tag: 'plinth' });
   acc.circles.push({ x: c.x + Math.sin(yaw) * -0.15, z: c.z + Math.cos(yaw) * -0.15, r: 0.62, y0: fy, y1: fy + 2.2 });
-  acc.lamps.push({ x: c.x + c.nx * 0.6, y: fy + 2.2, z: c.z + c.nz * 0.6, color: PAL.lampWarm, intensity: 3, distance: 6 });
+  acc.lamps.push({ x: c.x + fx * 0.6, y: fy + 2.2, z: c.z + fz * 0.6, color: PAL.lampWarm, intensity: 3, distance: 6 });
 }
 
 /** Outer-side sitting place over the valley: a stone terrace, two benches, a railing hung with khatas. */
@@ -219,7 +235,7 @@ const STONE = [PAL.rock, PAL.rockDark, 0x9a958a, PAL.slateLight, 0x857f74] as co
 
 function maniPile(acc: Acc, s: number, lat: number, r: Rng) {
   const c = at(s, lat);
-  if (!free(c.x, c.z, 0.9) || insideEnclosure(c.x, c.z)) return;
+  if (!free(c.x, c.z, 0.9) || nearWall(c.x, c.z, 0.9)) return;
   claim(c.x, c.z, 1.0);
   const F = acc.small;
   const y0 = minGround(c.x, c.z, 0.7) - 0.05;
@@ -262,14 +278,21 @@ function maniPile(acc: Acc, s: number, lat: number, r: Rng) {
 
 function koraChorten(acc: Acc, s: number, lat: number) {
   const c = at(s, lat);
-  if (!free(c.x, c.z, 0.8) || insideEnclosure(c.x, c.z)) return;
+  if (!free(c.x, c.z, 0.8) || nearWall(c.x, c.z, 0.95)) return;
   claim(c.x, c.z, 1.0);
   const y = minGround(c.x, c.z, 0.6);
   acc.small.box(1.2, 0.5, 1.2, [c.x, y + 0.05, c.z], PAL.stoneStep);
-  chorten(acc.small, [c.x, y + 0.3, c.z], 1.7, c.yaw);
+  const side = Math.sign(lat) || 1;
+  chorten(acc.small, [c.x, y + 0.3, c.z], 1.7, Math.atan2(-c.nx * side, -c.nz * side)); // niche faces the path
   acc.box({ x: c.x, z: c.z, w: 1.1, d: 1.1, rot: c.yaw, y0: y - 0.3, y1: y + 2.0, tag: 'chorten' });
-  // a fan of lungta from its spire to the ground
-  for (const l of flagFan([c.x, y + 2.0, c.z], 4, 3.5, { a0: Math.atan2(-c.nz, -c.nx) - 1.0, a1: Math.atan2(-c.nz, -c.nx) + 1.0, age: 0.35, size: 0.18, spacing: 0.26, seed: Math.round(s * 10) })) acc.flags.push(l);
+  // a fan of lungta from its spire to the ground, spread away from the path (never across it) and kept off
+  // the enclosure wall
+  const away = Math.atan2(c.nz * side, c.nx * side);
+  for (const l of flagFan([c.x, y + 2.0, c.z], 4, 2.4, { a0: away - 1.25, a1: away + 1.25, age: 0.35, size: 0.18, spacing: 0.26, seed: Math.round(s * 10) })) {
+    const [bx, , bz] = l.b;
+    if (insideEnclosure(bx + c.nx * 0.7, bz + c.nz * 0.7) || roadQuery(bx, bz).edge < 0.3) continue;
+    acc.flags.push(l);
+  }
 }
 
 function carvedRock(acc: Acc, s: number, lat: number, kind: number) {

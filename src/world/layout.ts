@@ -90,6 +90,7 @@ export const SPOTS = {
   maniDoor: { x: -7, z: -0.9, ry: Math.PI },       // standing on the Mani Lhakhang plinth at its door, facing the great wheel
   // Temple Road
   momoStall: { x: 8, z: 28, ry: -Math.PI / 2 },    // Tashi's momo stall, east side, counter facing the road (west)
+  momoCounter: { x: 6.2, z: 27.6, ry: Math.PI / 2 }, // standing point: customer side of Tashi's counter, facing it (E buys)
   breadStall: { x: -1, z: 40, ry: Math.PI / 2 },   // Tibetan bread (balep) cart, west side
   bookShop: { x: 9, z: 58, ry: -Math.PI / 2 },
   // Jogiwara Road / Market Lane
@@ -99,15 +100,16 @@ export const SPOTS = {
   templeGate: { x: 9, z: 93, ry: 0 },              // gate arch where Temple Road meets the courtyard
   templeMain: { x: 10, z: 116, ry: Math.PI },      // main temple hall, front door faces north (toward the gate)
   kalachakra: { x: -4, z: 109, ry: Math.PI / 2 },  // Kalachakra temple on the west side, facing east
-  prayerWheelRow: { x: 24, z: 110, ry: -Math.PI / 2 }, // row of wheels along the east side, x = 24, z 98..122, facing west
+  prayerWheelRow: { x: 23.7, z: 112, ry: -Math.PI / 2 }, // in the gallery lane by the wheel row (wheels at x 22.95, z 102.6..121.4), facing west
   butterLampHouse: { x: 19, z: 99, ry: Math.PI },  // glass-fronted butter-lamp house near the gate
   debateYard: { x: 3, z: 100, ry: 0 },             // monks debate here (clapping)
   // standing points in front of things (the spots above are object centres)
-  templeSteps: { x: 10, z: 102.6, ry: Math.PI },   // foot of the main hall's steps, facing its doors
+  templeSteps: { x: 10, z: 102.6, ry: 0 },         // foot of the main hall's steps, facing its doors (south)
   lampShelf: { x: 19, z: 95.6, ry: 0 },            // in front of the butter-lamp shelf, facing it
-  wheelLane: { x: 23.3, z: 110, ry: Math.PI / 2 }, // in the prayer-wheel gallery lane, facing the wheels
+  wheelLane: { x: 23.6, z: 102.6, ry: -Math.PI / 2 }, // gallery lane at the first (north) wheel, facing the wheels (west); walk south
   // Dharamkot Road
   amalaHouse: { x: 22, z: -42, ry: -Math.PI / 2 }, // Amala's house, door facing west onto the road
+  amalaYard: { x: 19.8, z: -43.5, ry: 2.29 },      // standing point: in her front yard, facing Amala on her bench (E talks)
   viewpoint: { x: 30, z: -85, ry: 0 },
   // Bhagsu Road
   puppyHideout: { x: 62.3, z: -11.4, ry: Math.PI }, // mouth of the nook behind the tea shop where the lost puppy hides

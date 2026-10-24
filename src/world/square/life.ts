@@ -316,7 +316,8 @@ export function buildLife(ctx: LifeCtx): LifeBuild {
   LAMP_POSTS.forEach((l, i) => {
     const { lamp, collider } = streetLamp(p, l.x, groundY(l.x, l.z), l.z, l.yaw, i % 3 === 1 ? 'old' : 'arm', 400 + i);
     out.colliders.push(collider);
-    out.lamps.push(lamp);
+    // the square is wide and its posts stand at the edges: they throw a little further than street lamps
+    out.lamps.push({ ...lamp, intensity: lamp.intensity * 1.35, distance: 12 });
   });
 
   // potted plants: round the shrine plinth, by the chorten gate, along shop fronts
@@ -374,7 +375,7 @@ export function buildLife(ctx: LifeCtx): LifeBuild {
   wire(p, P2.low, P3.low, 0.6, 2, undefined, 0.3);
   wire(p, P1.top, [22.6, 7.6, -10.75], 0.5, 2);
   const drop = (P: { low: V3 }, x: number, y: number, z: number) => wire(p, P.low, [x, y, z], 0.25, 1);
-  drop(P1, 10.2, 4.6, -10.75); drop(P1, 15.6, 4.4, -10.75); drop(P1, 18.4, 4.8, -10.75);
+  drop(P1, 10.2, 3.15, -10.75); drop(P1, 15.6, 4.4, -10.75); drop(P1, 18.4, 4.8, -10.75); // (N5 is one storey: into its parapet)
   drop(P2, -2.6, 4.5, -10.75); drop(P2, -4.8, 5.0, -10.75);
   drop(P3, -11.8, 4.7, -10.75); drop(P3, -14.0, 4.4, -9.0); drop(P3, -16.0, 5.2, -10.75);
 

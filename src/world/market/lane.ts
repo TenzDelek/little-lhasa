@@ -54,6 +54,8 @@ function stall(c: Ctx, f: Frame, y: number, w: number, type: StallType, r: Rng, 
     if (first) {
       B.box(0.025, 1.9, 1.75, [-hw, 1.4, -0.95], pick(r, TARPS));
       B.box(0.03, 0.06, 1.9, [-hw, 2.38, -0.9], 0x3a3a3a);
+      // printed bands on the plastic sheet so the lane mouth is not a blank panel
+      for (const by of [0.72, 0.84, 2.05]) B.box(0.035, by === 0.84 ? 0.03 : 0.07, 1.75, [-hw, by, -0.95], by === 2.05 ? PAL.templeYellow : 0xe6e3dc);
     }
     // hanging rail under the tarp front + a bare bulb
     P.box(w - 0.1, 0.025, 0.025, [0, 2.2, 0.32], 0x3a3a3a);

@@ -7,6 +7,7 @@ import type { Lamp } from '../../core/lamps';
 import type { Interactable } from '../../core/interact';
 import type { FlagLine, DarchorPole } from '../../kit/flags';
 import type { SteamEmitter } from './steam';
+import type { Sight } from './sight';
 import { toWorld, type Frame, type OBB } from './util';
 
 export interface Ctx {
@@ -30,15 +31,17 @@ export interface Ctx {
   interact: Interactable[];
   /** Footprints already placed (overlap tests). */
   footprints: OBB[];
-  /** Debug: what kind of shop stands where (front centre). */
-  shops: { kind: string; x: number; z: number }[];
+  /** Debug: what kind of shop stands where (front centre), floors and roof top. */
+  shops: { kind: string; x: number; z: number; floors?: number; top?: number }[];
+  /** View corridors (default camera → food stalls) that buildings must stay below. */
+  sight: Sight[];
 }
 
 export function makeCtx(): Ctx {
   return {
     bld: new Parts(), props: new Parts(), hang: new Parts(),
     colliders: [], circles: [], lamps: [], bLamps: [], steam: [], flags: [], darchor: [], meshes: [], interact: [],
-    footprints: [], shops: [],
+    footprints: [], shops: [], sight: [],
   };
 }
 

@@ -2,7 +2,8 @@
 // Every phrase is drawn once into one atlas canvas (white rounded box, 1-px dark outline, a tail, pixel text
 // from font.ts) at one canvas pixel = one art pixel. A small pool of camera-facing quads shows them; in the
 // iso camera each quad is scaled to exactly one texel per art pixel and snapped to the art-pixel grid, so
-// the text stays crisp. Drawn on top of everything (depthTest off).
+// the text stays crisp. Drawn on top of everything (depthTest off). Tibetan phrases join the atlas only once
+// the Tibetan web font has loaded (font.ts), so no fallback glyphs get baked in; until then they do not show.
 import {
   CanvasTexture, Group, Mesh, NearestFilter, PlaneGeometry, SRGBColorSpace, Vector3, type Camera,
   type BufferAttribute, type PerspectiveCamera,
@@ -11,7 +12,7 @@ import { MeshBasicNodeMaterial } from 'three/webgpu';
 import { texture } from 'three/tsl';
 import { view } from '../../render/view';
 import { U } from '../../core/uniforms';
-import { FONT_H, drawMask, drawText, isTibetan, rasterScript, textWidth } from './font';
+import { FONT_H, drawMask, drawText, isTibetan, rasterScript, textWidth, tibetanFontReady, whenTibetanFont } from './font';
 
 export interface BubbleOwner {
   /** World point just above the head (updated by the owner every frame). */
@@ -28,6 +29,9 @@ const PAD_X = 3, PAD_Y = 2, LINE_GAP = 2, TAIL = 2;
 const INK = '#2a2224', PAPER = '#fbf7ee', BOD_INK = '#6e1f2a';
 
 const _r = new Vector3(), _u = new Vector3(), _p = new Vector3();
+// placed bubble rectangles this frame (camera right / up plane), to stack overlapping ones
+const MAX_SLOTS = 16;
+const _rect = new Float32Array(MAX_SLOTS * 4);
 
 export class Bubbles {
   readonly group = new Group();
@@ -38,6 +42,7 @@ export class Bubbles {
   private tex: CanvasTexture;
   private shelfX = 1; private shelfY = 1; private shelfH = 0;
   private dirty = false;
+  private disposed = false;
 
   constructor(phrases: readonly string[], poolSize = 5) {
     this.canvas = document.createElement('canvas');
@@ -47,7 +52,16 @@ export class Bubbles {
     this.tex.magFilter = this.tex.minFilter = NearestFilter;
     this.tex.generateMipmaps = false;
     this.tex.colorSpace = SRGBColorSpace;
-    for (const p of phrases) this.entry(p);
+    const later: string[] = [];
+    for (const p of phrases) {
+      if (isTibetan(p) && !tibetanFontReady()) later.push(p);
+      else this.entry(p);
+    }
+    if (later.length) {
+      void whenTibetanFont(later.join('')).then(() => {
+        if (!this.disposed) for (const p of later) this.entry(p);
+      });
+    }
 
     const m = new MeshBasicNodeMaterial({ depthTest: false, depthWrite: true });
     const t = texture(this.tex);
@@ -123,6 +137,7 @@ export class Bubbles {
   show(owner: BubbleOwner, text: string, dur = 2.2): boolean {
     let slot = this.slots.find((s) => s.owner === owner) ?? this.slots.find((s) => !s.owner);
     if (!slot) return false;
+    if (isTibetan(text) && !this.entries.has(text) && !tibetanFontReady()) return false; // font still loading
     const e = this.entry(text);
     if (!e) return false;
     slot.owner = owner; slot.t = 0; slot.dur = dur; slot.e = e;
@@ -143,6 +158,7 @@ export class Bubbles {
     const ortho = (camera as { isOrthographicCamera?: boolean }).isOrthographicCamera === true;
     _r.setFromMatrixColumn(camera.matrixWorld, 0);
     _u.setFromMatrixColumn(camera.matrixWorld, 1);
+    let placed = 0;
     for (const s of this.slots) {
       if (!s.owner) continue;
       s.t += dt;
@@ -165,6 +181,18 @@ export class Bubbles {
         B = oy + Math.round((B - oy) / px) * px;
       }
       const W = e.w * px, H = e.h * px;
+      if (ortho) {
+        // two people talking side by side: lift the later bubble clear of the earlier ones (whole art pixels)
+        for (let pass = 0; pass < 3; pass++) {
+          let moved = false;
+          for (let k = 0; k < placed; k++) {
+            const l = _rect[k * 4], b = _rect[k * 4 + 1], w = _rect[k * 4 + 2], h = _rect[k * 4 + 3];
+            if (L < l + w + px && L + W + px > l && B < b + h + px && B + H + px > b) { B = b + h + px; moved = true; }
+          }
+          if (!moved) break;
+        }
+        if (placed < MAX_SLOTS) { const k = placed++ * 4; _rect[k] = L; _rect[k + 1] = B; _rect[k + 2] = W; _rect[k + 3] = H; }
+      }
       const m = s.mesh;
       m.position.copy(A).addScaledVector(_r, L + W / 2 - a).addScaledVector(_u, B + H / 2 - b);
       m.quaternion.copy(camera.quaternion);
@@ -174,6 +202,7 @@ export class Bubbles {
   }
 
   dispose() {
+    this.disposed = true;
     this.tex.dispose();
     for (const s of this.slots) s.mesh.geometry.dispose();
     (this.slots[0]?.mesh.material as MeshBasicNodeMaterial | undefined)?.dispose();

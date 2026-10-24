@@ -2,14 +2,17 @@
 // none on streets, drains, frontage or footpaths; thick on road verges and in clearings; sparse ferns on the
 // forest floor. Merged into one static mesh per 48 m tile (one draw call each, culled with the terrain).
 // The shader sways the blades in the wind and parts them around the boy's feet, and dissolves them with the
-// diorama rim exactly like the ground.
+// diorama rim exactly like the ground. Once the other modules have registered their colliders, every tuft that
+// stands in a solid thing (plinths, steps, house floors, the temple's kora features) is collapsed (trimGrass).
 import { BufferAttribute, BufferGeometry, Color, Float32BufferAttribute, Mesh, type Material } from 'three';
 import type { Node } from 'three/webgpu';
 import {
   attribute, cameraViewMatrix, float, max, positionLocal, positionWorld, sin, smoothstep, vec2, vec3, vec4,
 } from 'three/tsl';
-import { WORLD_BOUNDS } from '../layout';
+import { WORLD_BOUNDS, roadById } from '../layout';
 import { groundY } from '../terrain';
+import { insideEnclosure } from '../temple/site';
+import { collision, type Collider } from '../../core/collision';
 import { mat } from '../../core/materials';
 import { U, WIND_DIR } from '../../core/uniforms';
 import { PAL } from '../../core/palette';
@@ -19,12 +22,21 @@ import { fields, rimKeep } from './shade';
 import { CHUNK } from './terrainMesh';
 
 const B = WORLD_BOUNDS;
-const COURT = [-13.5, 89.5, 30.5, 130.5] as const;
+/** The viewpoint's tree-free view cone (twin of hillside/woods.ts VIEW_CONE). */
+const VIEW = { x: 30, z: -81.5, tan: Math.tan((35 * Math.PI) / 180) };
+/** The temple gate approach (paved by the temple module between the kora and the gate). */
+const GATE_APPROACH = [4.5, 88.5, 13.5, 93.5] as const;
+/** Inside the temple enclosure, or within `pad` m of its wall (the temple's deck and walls). */
+const nearEnclosure = (x: number, z: number, pad: number) =>
+  insideEnclosure(x, z) || insideEnclosure(x - pad, z) || insideEnclosure(x + pad, z) || insideEnclosure(x, z - pad) || insideEnclosure(x, z + pad);
 
 // ---- geometry writer ---------------------------------------------------------------------------------
 class Writer {
   pos: number[] = []; col: number[] = []; sway: number[] = [];
+  /** One record per placement (tuft, fern, flower, weed): x, z, reach, first vertex, end vertex. */
+  items: number[] = [];
   blades = 0;
+  get verts() { return this.pos.length / 3; }
   private c = new Color();
   tri(a: number[], b: number[], c: number[], ca: number, cb: number, cc: number, sa: number, sb: number, sc: number) {
     this.pos.push(...a, ...b, ...c);
@@ -136,10 +148,12 @@ function density(f: FieldSample, x: number, z: number): { p: number; forest: num
   if (dS < 0.3) return none;
   if (f.asphalt < 1.0 && f.lane > 0 && f.plaza > 0) return none; // kerb, drain, shoulder
   if (f.built > 0.45) return none;
-  // temple court + its walls / walkway (temple builder's floors)
-  if (x > COURT[0] && x < COURT[2] && z > COURT[1] && z < COURT[3]) return none;
+  // temple court, its deck and enclosure wall (+0.5 m), and the paved gate approach
+  if (x > GATE_APPROACH[0] && x < GATE_APPROACH[2] && z > GATE_APPROACH[1] && z < GATE_APPROACH[3]) return none;
+  if (z > 88 && z < 134 && x > -17 && x < 32 && nearEnclosure(x, z, 0.5)) return none;
   if (f.path > 0.4) return { ...none, p: 0.02 };
-  const forest = Math.min(1, Math.max(0, (dS - 7 + (vnoise2(x * 0.075 + 3.1, z * 0.075 + 8.7) - 0.5) * 10) / 9));
+  const cone = smooth(-1, 5, (VIEW.z - z) * VIEW.tan - Math.abs(x - VIEW.x)); // viewpoint meadow, no woods
+  const forest = Math.min(1, Math.max(0, (dS - 7 + (vnoise2(x * 0.075 + 3.1, z * 0.075 + 8.7) - 0.5) * 10) / 9)) * (1 - cone);
   const verge = Math.max(0, 1 - Math.abs(dS - 1.7) / 1.3);
   const lush = lushAt(x, z) * (1 - forest * 0.8);
   let p = 0.05 + verge * 0.5 + lush * 0.9;
@@ -148,7 +162,13 @@ function density(f: FieldSample, x: number, z: number): { p: number; forest: num
   return { p: Math.min(1, p), forest, verge, lush };
 }
 
-export interface GrassChunk { mesh: Mesh; cx: number; cz: number }
+export interface GrassChunk {
+  mesh: Mesh; cx: number; cz: number;
+  /** Placement records (x, z, reach, v0, v1) for the collider trim. */
+  items: Float32Array;
+  /** 1 once a placement has been trimmed away. */
+  dead: Uint8Array;
+}
 
 export function buildGrass(material: Material): { chunks: GrassChunk[]; blades: number } {
   const chunks: GrassChunk[] = [];
@@ -168,27 +188,101 @@ export function buildGrass(material: Material): { chunks: GrassChunk[]; blades: 
         const y = groundY(px, pz);
         const dry = vnoise2(px * 0.075 + 3.1, pz * 0.075 + 8.7) * 0.8 + vnoise2(px * 1.25 + 9.1, pz * 1.25 + 4.4) * 0.2 > 0.62;
         const roll = r();
+        const v0 = W.verts;
+        let reach = 0.2;
         if (d.forest > 0.5) {
-          if (roll < 0.3) fern(W, r, px, y, pz, 0.32 + r() * 0.25);
+          if (roll < 0.3) { const fs = 0.32 + r() * 0.25; fern(W, r, px, y, pz, fs); reach = fs; }
           else tuft(W, r, px, y, pz, TONES.forest, 1);
         } else if (roll < 0.05 && !dry) flower(W, r, px, y, pz);
         else if (roll < 0.05 + d.verge * 0.08) weed(W, r, px, y, pz);
-        else if (roll < 0.09 && d.forest > 0.2) fern(W, r, px, y, pz, 0.3 + r() * 0.2);
+        else if (roll < 0.09 && d.forest > 0.2) { const fs = 0.3 + r() * 0.2; fern(W, r, px, y, pz, fs); reach = fs; }
         else {
           const tone = dry ? TONES.dry : d.verge > 0.4 ? TONES.verge : r() < 0.5 ? TONES.lush : TONES.green;
           tuft(W, r, px, y, pz, tone, 1 + d.verge * 0.5 + d.lush * 0.5);
         }
+        W.items.push(px, pz, reach, v0, W.verts);
       }
       const g = W.build();
       if (!g) continue;
       const mesh = new Mesh(g, material);
       mesh.castShadow = false; mesh.receiveShadow = true;
       mesh.name = 'ground:grass';
-      chunks.push({ mesh, cx, cz });
+      chunks.push({ mesh, cx, cz, items: new Float32Array(W.items), dead: new Uint8Array(W.items.length / 5) });
       blades += W.blades;
     }
   }
   return { chunks, blades };
+}
+
+// ---- collider trim -------------------------------------------------------------------------------------
+// Other modules' solid things (plinths, mani piles, chortens, steps, house floors…) register colliders after
+// the grass is built. Once they have, every placement whose footprint touches one is collapsed to a point
+// under the ground, so no blade pokes through a platform or hugs the base of a shrine. Along the kora the
+// margin is wider: the pilgrims' features stand clear of the meadow.
+const KORA = roadById('kora-path');
+const TREE_TAGS = new Set(['hillside-tree', 'tree']);
+const _near: Collider[] = [];
+
+/** Distance in xz from (x, z) to a collider's footprint (0 inside). */
+function footDist(c: Collider, x: number, z: number) {
+  if (c.kind === 'circle') return Math.max(0, Math.hypot(x - c.x, z - c.z) - c.r);
+  const cs = Math.cos(c.rot), sn = Math.sin(c.rot);
+  const dx = x - c.x, dz = z - c.z;
+  const lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+  return Math.hypot(Math.max(Math.abs(lx) - c.w / 2, 0), Math.max(Math.abs(lz) - c.d / 2, 0));
+}
+
+/** Within ~6 m of the kora's centre line (the band where the temple placed its kora features)? */
+function nearKora(x: number, z: number) {
+  if (x < -32 || x > 48 || z < 78 || z > 150) return false;
+  const P = KORA.pts;
+  for (let i = 1; i < P.length; i++) {
+    const [ax, az] = P[i - 1], [bx, bz] = P[i];
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
+    if (Math.hypot(x - ax - dx * t, z - az - dz * t) < 6) return true;
+  }
+  return false;
+}
+
+/**
+ * Collapse every grass placement that stands in (or, along the kora, close to) a static collider. Returns
+ * placements trimmed by tag (dev statistics). Cheap enough to run again whenever the colliders change.
+ */
+export function trimGrass(chunks: GrassChunk[]): Record<string, number> {
+  const stats: Record<string, number> = {};
+  for (const ch of chunks) {
+    const it = ch.items;
+    const posA = ch.mesh.geometry.getAttribute('position') as BufferAttribute;
+    const swayA = ch.mesh.geometry.getAttribute('sway') as BufferAttribute;
+    const pos = posA.array as Float32Array, sway = swayA.array as Float32Array;
+    let dirty = false;
+    for (let k = 0, i = 0; k < it.length; k += 5, i++) {
+      if (ch.dead[i]) continue;
+      const x = it[k], z = it[k + 1];
+      const R = it[k + 2] + (nearKora(x, z) ? 0.55 : 0.08);
+      const gy = groundY(x, z);
+      let hit: Collider | null = null;
+      for (const c of collision.query(x, z, R, _near)) {
+        if (c.tag && TREE_TAGS.has(c.tag)) continue;
+        if (c.y0 > gy + 0.6 || c.y1 < gy + 0.03) continue; // overhead (balconies, awnings) or buried
+        if (footDist(c, x, z) < R) { hit = c; break; }
+      }
+      if (!hit) continue;
+      ch.dead[i] = 1;
+      dirty = true;
+      const tag = hit.tag ?? hit.kind;
+      stats[tag] = (stats[tag] ?? 0) + 1;
+      const v0 = it[k + 3], v1 = it[k + 4];
+      const bx = pos[v0 * 3], by = pos[v0 * 3 + 1] - 0.4, bz = pos[v0 * 3 + 2];
+      for (let v = v0; v < v1; v++) {
+        pos[v * 3] = bx; pos[v * 3 + 1] = by; pos[v * 3 + 2] = bz;
+        sway[v] = 0; // no wind / parting either, so the collapsed triangles stay zero-area
+      }
+    }
+    if (dirty) { posA.needsUpdate = true; swayA.needsUpdate = true; }
+  }
+  return stats;
 }
 
 // ---- material --------------------------------------------------------------------------------------

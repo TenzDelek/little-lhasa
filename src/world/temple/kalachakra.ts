@@ -5,7 +5,7 @@ import type { Acc } from './acc';
 import { CY, KALA } from './site';
 import {
   BEAM_COLORS, EAVE_COLORS, lbox, paintRow, pemaFrieze, rafterEnds, shade, tibDoor, tibPillar, tibWindow,
-  type Frame,
+  tiledRoof, type Frame,
 } from './util';
 import { dharmaWheel, gyaltsen } from './mainHall';
 
@@ -48,7 +48,7 @@ export function buildKalachakra(acc: Acc) {
     B.box(W * 2 + 0.4, 0.14, D * 2 + 0.4, [0, PL + FR + 0.12, 0], shade(PAL.templeMaroon, -0.3));
     for (const sx of [-1, 1]) B.box(0.26, 0.4, len, [sx * (W - 0.23), PL + ROOF + 0.2, 0], PAL.templeMaroon);
     for (const sz of [-1, 1]) B.box(W * 2 - 0.2, 0.4, 0.26, [0, PL + ROOF + 0.2, sz * (D - 0.23)], PAL.templeMaroon);
-    B.box(W * 2 - 0.6, 0.05, D * 2 - 0.6, [0, PL + ROOF + 0.02, 0], 0x8f8a80);
+    tiledRoof(B, -W + 0.3, -D + 0.3, W - 0.3, D - 0.3, PL + ROOF + 0.05, 33, { base: 0.05, stains: 1 });
   });
 
   // facades (face plane at z=0 in a sub-group)

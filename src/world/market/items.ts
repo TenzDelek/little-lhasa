@@ -1,6 +1,7 @@
 // Small goods and furniture for shop fronts and stalls, built from Parts primitives in the LOCAL space of
 // whatever group the caller has open (front = +z, ground = y 0). One art pixel ≈ 4.4 cm, so most details
 // are 1–3 px: bead strings, book spines, bowl rims.
+import { CylinderGeometry } from 'three';
 import type { Parts, V3 } from '../../core/geom';
 import { PAL } from '../../core/palette';
 import { pick, range, type Rng } from '../../core/math';
@@ -244,6 +245,22 @@ export function umbrella(p: Parts, x: number, y: number, z: number, color: numbe
   p.cone(rad, 0.36, [x, y + h - 0.22, z], color, 8);
   p.cyl(rad * 1.0, rad * 1.02, 0.07, [x, y + h - 0.27, z], color, 8);
   p.box(0.06, 0.06, 0.06, [x, y + h + 0.14, z], 0x3a3a3a);
+}
+
+/** Market umbrella with alternating coloured panels (n wedges) and a matching valance. */
+export function stripedUmbrella(p: Parts, x: number, y: number, z: number, cols: readonly number[], h = 2.3, rad = 1.3, n = 8) {
+  p.box(0.05, h, 0.05, [x, y + h / 2, z], 0x5a5a5a);
+  const L = (Math.PI * 2) / n;
+  for (let i = 0; i < n; i++) {
+    const col = cols[i % cols.length];
+    const g = new CylinderGeometry(0, rad, 0.4, 1, 1, false, i * L, L);
+    g.translate(0, 0.2, 0);
+    p.add(g, col, [x, y + h - 0.24, z]);
+    const v = new CylinderGeometry(rad, rad * 1.01, 0.1, 1, 1, true, i * L, L);
+    v.translate(0, -0.05, 0);
+    p.add(v, col, [x, y + h - 0.24, z]);
+  }
+  p.box(0.06, 0.08, 0.06, [x, y + h + 0.2, z], 0x3a3a3a);
 }
 
 // ---- food -------------------------------------------------------------------------------------------------

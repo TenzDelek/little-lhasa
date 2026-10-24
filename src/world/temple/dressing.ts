@@ -10,14 +10,16 @@ export function buildDressing(acc: Acc) {
   treePlatform(acc);
   debatePlatform(acc);
   sangKhang(acc, 14.8, 98.4);
-  // the bigger chorten on the south-west plaza, a ring of small ones behind the wheel gallery
+  // the bigger chorten on the south-west plaza, a row of small ones along the east wall beyond the wheel lane
   bigChorten(acc, -4.6, 119.6);
-  for (let i = 0; i < 6; i++) {
-    const z = 100.2 + i * 4.3;
+  // (a gap is left where the east stairway arrives from the kora, z ≈ 112.5–114.7)
+  const cz = [99.8, 104.0, 108.2, 118.6, 122.8];
+  cz.forEach((z, i) => {
     chorten(acc.small, [27.75, CY, z], 1.5, 0);
     acc.box({ x: 27.75, z, w: 0.95, d: 0.95, y0: CY, y1: CY + 1.5, tag: 'chorten' });
-    if (i < 5) for (let k = 0; k < 2; k++) acc.box(pottedPlant(acc.small, 27.75 + (k ? 0.5 : -0.5), CY, z + 2.15, 300 + i * 2 + k));
-  }
+    const next = cz[i + 1];
+    if (next !== undefined && next - z < 5) for (let k = 0; k < 2; k++) acc.box(pottedPlant(acc.small, 27.75 + (k ? 0.5 : -0.5), CY, (z + next) / 2, 300 + i * 2 + k));
+  });
   // darchor: two big poles flanking the main steps, one by the tree, one in the north-east corner, one SW
   acc.poles.push(
     { x: 5.2, z: 103.9, y: CY, h: 9.5, seed: 11, color: PAL.lungta[3] },
@@ -53,7 +55,7 @@ export function buildDressing(acc: Acc) {
   acc.box(bench(acc.small, -8.7, CY, 122.0, Math.PI / 2, PAL.woodTrim));
 
   // lamp posts in the court
-  for (const [x, z, yaw] of [[0.3, 95.6, Math.PI * 0.75], [18.6, 104.2, -Math.PI / 2], [-8.4, 113.4, Math.PI / 2], [12.4, 126.6, Math.PI], [GALLERY.xFront - 0.6, 124.2, 0]] as const) {
+  for (const [x, z, yaw] of [[0.3, 95.6, Math.PI * 0.75], [18.6, 104.2, -Math.PI / 2], [-8.4, 113.4, Math.PI / 2], [12.4, 126.6, Math.PI], [GALLERY.xBack - 0.8, 124.2, 0]] as const) {
     const L = streetLamp(acc.small, x, CY, z, yaw, 'old');
     acc.lamps.push(L.lamp);
     acc.box(L.collider);

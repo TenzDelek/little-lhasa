@@ -367,6 +367,27 @@ export function roofFlags(c: Ctx, D: Dress, onTin: boolean) {
   }
 }
 
+/**
+ * Something drying in the sun on a flat roof, on a woven bamboo mat just behind the front parapet: red
+ * chillies, cubes of chhurpi (dried yak cheese) or apricots. Low enough to stay under the parapet.
+ */
+export function roofDrying(c: Ctx, D: Dress) {
+  const { w, d, r, floors, floorH } = D;
+  if (w < 3.6 || d < 3.2) return;
+  const y = floors * floorH + 0.03;
+  const mw = Math.min(1.5, w - 2.4), md = 0.9;
+  const x = range(r, -(w / 2 - 1.2 - mw / 2), w / 2 - 1.2 - mw / 2), z = d / 2 - 0.45 - 0.5 - md / 2;
+  c.props.box(mw, 0.02, md, [x, y + 0.01, z], 0xb89a5a);
+  for (let k = -md / 2 + 0.1; k < md / 2; k += 0.18) c.props.box(mw, 0.022, 0.025, [x, y + 0.012, z + k], 0x9a7e46);
+  const what = r();
+  const cols = what < 0.5 ? [0xb8281e, 0xc8302a, 0x9a2018] : what < 0.8 ? [0xeee6d2, 0xe2d8c0] : [0xe08a2a, 0xd0782a];
+  const n = Math.round(mw * md * 26);
+  for (let i = 0; i < n; i++) {
+    const long = what < 0.5;
+    c.props.box(long ? 0.1 : 0.06, 0.035, long ? 0.035 : 0.06, [x + range(r, -mw / 2 + 0.06, mw / 2 - 0.06), y + 0.04, z + range(r, -md / 2 + 0.06, md / 2 - 0.06)], pick(r, cols), { rot: [0, r() * 3, 0] });
+  }
+}
+
 /** Laundry line across part of an upper floor (brackets + clothes on the sway Parts). */
 export function upperLaundry(c: Ctx, D: Dress) {
   const { w, d, r, floorH, floors } = D;
@@ -380,9 +401,9 @@ export function upperLaundry(c: Ctx, D: Dress) {
 }
 
 const BLADE: Partial<Record<ShopKind, string[]>> = {
-  cafe: ['WIFI', 'CAFE', 'MOMO'], travel: ['TREK', 'TAXI', 'BUS TICKET'], cyber: ['XEROX', 'STD ISD', 'WIFI'],
+  cafe: ['WIFI', 'CAFE', 'TEA'], travel: ['TREK', 'TAXI', 'BUS TICKET'], cyber: ['XEROX', 'STD ISD', 'WIFI'],
   general: ['STD ISD', 'MILK'], handicraft: ['TIBETAN', 'ANTIQUE'], shawl: ['YAK WOOL'], guesthouse: ['ROOMS', 'HOT WATER'],
-  momo: ['MOMO', 'THUKPA'], tailor: ['CHUBA'], bakery: ['CAKES'], germanBakery: ['CAKES'],
+  momo: ['THUKPA', 'TEA'], tailor: ['CHUBA'], bakery: ['CAKES'], germanBakery: ['CAKES'],
 };
 const BLADE_COL: Array<[number, number]> = [
   [0xf1c232, 0x23202a], [0x2f5f8a, 0xf3efe6], [PAL.templeRed, PAL.templeYellow], [0xeeeae0, 0x6a2630], [0x2f8a4a, 0xf3efe6], [0x23202a, 0x7adf8a],

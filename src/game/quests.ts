@@ -123,6 +123,26 @@ export function talkTo(npc: string, fallback: DialogueLine[], choices?: Choice[]
   if (npc === NPC_IDS.amala) {
     const m = q(QUEST.momos);
     if (m.done) return G().say([L('Amala', 'Those momos were still warm! You are a good boy, Tenzin.', 'ཨ་མ་ལགས།'), L('Amala', 'Go and spin some prayer wheels for your grandfather, okay?')]);
+    if (m.stage === 0 && G().hasItem(ITEMS.momo)) {
+      // he bought a plate before she asked: she is delighted, and the errand is done in one visit
+      G().patchQuest(QUEST.momos, { stage: 2 });
+      G().takeItem(ITEMS.momo);
+      G().say([
+        L('Amala', 'Tashi delek, Tenzin-la! What is that you are carrying?', 'ཨ་མ་ལགས།'),
+        L('Amala', 'Momos? For me? I was just going to ask you to fetch some. Thuk-je-che!', 'ཐུགས་རྗེ་ཆེ།'),
+        L('Amala', 'Take this for your pocket. And come for tea tomorrow.'),
+      ], { onClose: () => complete(QUEST.momos, () => { G().addRupees(80); G().toast('+₹80 from Amala', 'money'); }) });
+      return;
+    }
+    if (m.stage === 1 && !G().hasItem(ITEMS.momo) && G().rupees < 60) {
+      // spent her money on the way: she tops it up, so the errand can never get stuck
+      const need = 60 - G().rupees;
+      G().say([
+        L('Amala', 'Spent it already? A-tsi! On laphing, I bet.', 'ཨ་མ་ལགས།'),
+        L('Amala', 'Here. Straight to Tashi’s stall this time, okay?'),
+      ], { onClose: () => { G().addRupees(need); G().toast(`+₹${need} from Amala`, 'money'); sfx('coin'); } });
+      return;
+    }
     if (m.stage === 0) {
       G().say([
         L('Amala', 'Tashi delek, Tenzin-la! Come, come.', 'ཨ་མ་ལགས།'),
@@ -131,7 +151,7 @@ export function talkTo(npc: string, fallback: DialogueLine[], choices?: Choice[]
       ], { onClose: () => { G().addRupees(60); G().toast('+₹60 from Amala', 'money'); advance(QUEST.momos, 1); } });
       return;
     }
-    if (m.stage === 2 && G().takeItem(ITEMS.momo)) {
+    if (m.stage >= 1 && G().takeItem(ITEMS.momo)) {
       G().say([
         L('Amala', 'Momos! Thuk-je-che, my dear.', 'ཐུགས་རྗེ་ཆེ།'),
         L('Amala', 'Take this for your pocket. And come for tea tomorrow.'),

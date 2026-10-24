@@ -30,7 +30,7 @@ import { groundY } from '../world/terrain';
 // ---- local colours (muted, sit inside PAL's range) --------------------------------------------------
 const C = {
   galv: 0x9aa1a6, galvDark: 0x737a80, metal: 0x3a3e42, metalDark: 0x26282b, rubber: 0x1f1e20,
-  chrome: 0xc4c8cb, ceramic: 0xe6e3dc, ceramicBrown: 0x7a4a32, cable: 0x1c1c1f, tar: 0x3b3122,
+  chrome: 0xc4c8cb, ceramic: 0xe6e3dc, ceramicBrown: 0x7a4a32, cable: 0x2a2a2f, tar: 0x3b3122,
   rust: 0x5a3b2a, whitewash: 0xe9e4d8, solar: 0x27324a, solarFrame: 0xaab0b4, lens: 0xf2ecd8,
   tail: 0xb0302a, plate: 0xe8e4d8, ledHead: 0x4a4f54, soil: 0x4a3a2a, oldGreen: 0x3f6f55,
   terracotta: 0xb4603c, terracottaDark: 0x94502f, leaf: 0x4f7a32, leafLight: 0x6f9a3a, leafDark: 0x3a5a26,
@@ -131,7 +131,8 @@ export function streetLamp(
   const r = srng(seed ?? seedOf(x, z));
   const roll = r();
   const k: LampKind = kind ?? (roll < 0.5 ? 'arm' : roll < 0.75 ? 'solar' : 'old');
-  let headZ = 1.2, headY = 4.6, color: number = PAL.lampSodium, H = 4.6, intensity = 7; // warm light reads darker
+  // (a post lamp hangs ~4.8 m up, so it needs about twice the punch of a shop bulb to put a pool on the road)
+  let headZ = 1.2, headY = 4.6, color: number = PAL.lampSodium, H = 4.6, intensity = 13; // warm light reads darker
 
   parts.group([x, y, z], yaw, () => {
     // concrete footing, a little sunk into the ground
@@ -160,7 +161,7 @@ export function streetLamp(
       if (r() < 0.35) parts.box(0.16, 0.22, 0.02, [0, 1.7, 0.07], pick(r, [PAL.wallYellow, PAL.wallWhite, PAL.wallPink]));
     } else if (k === 'solar') {
       H = 4.3;
-      intensity = 5;
+      intensity = 10;
       parts.cyl(0.045, 0.062, H, [0, 0.22, 0], C.galv, 6);
       const top = 0.22 + H;
       // battery box clamped to the pole
@@ -196,7 +197,7 @@ export function streetLamp(
 
   const L = local(x, y, z, yaw, 0, headY - 0.35, headZ);
   return {
-    lamp: { x: L[0], y: L[1], z: L[2], color, intensity, distance: 10 },
+    lamp: { x: L[0], y: L[1], z: L[2], color, intensity, distance: 12 },
     collider: { x, z, w: 0.3, d: 0.3, rot: yaw, y0: y - 0.2, y1: y + H + 0.3, tag: 'lamp' },
   };
 }

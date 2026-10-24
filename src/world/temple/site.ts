@@ -41,7 +41,12 @@ export const MAIN = {
 
 export const KALA = { x0: -7.6, x1: -1.6, z0: 105.4, z1: 112.6, plinth: 0.6 };
 export const LAMPHOUSE = { x0: 16.7, x1: 21.3, z0: 97.0, z1: 100.6 };
-export const GALLERY = { xFront: 22.1, xBack: 25.3, xWheel: 24.25, z0: 98.0, z1: 122.0, n: 24 };
+/**
+ * Prayer-wheel gallery on the east side. The wheels stand on the hall side (xWheel) with a low back wall behind
+ * them (xBack); the walking lane runs EAST of them, up to the front posts (xFront). Walking the lane southward
+ * is walking clockwise round the hall, with the wheels on the right hand. 30 wheels in 6 bays of 5.
+ */
+export const GALLERY = { xBack: 22.25, xWheel: 22.95, xFront: 25.15, z0: 102.0, z1: 122.0, n: 30, perBay: 5 };
 export const DEBATE = { x: 3.5, z: 100, tree: [-4.2, 98.6] as const };
 
 /** Horizontal span [xl, xr] of the enclosure polygon at depth z (convex polygon). */

@@ -34,6 +34,8 @@ export const interactions = {
     return () => { if (items.get(i.id) === i) items.delete(i.id); };
   },
   get(id: string) { return items.get(id); },
+  /** Debug / QA: every registered interactable. */
+  list() { return [...items.values()]; },
   posOf(i: Interactable, out = _v): Vector3 {
     return typeof i.pos === 'function' ? out.copy(i.pos()) : out.set(i.pos[0], i.pos[1], i.pos[2]);
   },

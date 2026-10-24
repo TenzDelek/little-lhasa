@@ -139,8 +139,9 @@
 .rs { font-family: var(--font-ui); font-weight: 600; margin-right: 1px; }
 .om { font-family: var(--font-tibetan); font-weight: 700; font-size: 17px; line-height: 1; color: var(--accent); padding: 0 1px 0 4px; position: relative; top: 0.3em; }
 .pdelta {
-  position: absolute; right: 4px; top: 100%; margin-top: 3px;
+  position: absolute; right: 0; top: 100%; margin-top: 4px; padding: 4px 6px 3px;
   font: 11px/1 var(--font-pixel); letter-spacing: 0.04em; white-space: nowrap; pointer-events: none;
+  background: var(--paper); border: 1px solid var(--line); /* readable over busy pixel art */
   animation: floatUp 1.6s ease forwards;
 }
 .pdelta.up { color: var(--money); }
@@ -158,11 +159,15 @@
 @keyframes pop { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
 
 /* toasts */
+/* lane measured by Hud.tsx (useToastLane): centred at the top between the two corner columns, or below them */
 .toasts {
-  position: absolute; top: var(--pad-t); left: 50%; transform: translateX(-50%);
-  width: min(420px, calc(100% - 2 * 344px)); min-width: 260px;
-  display: grid; gap: 6px; justify-items: center; z-index: 25; pointer-events: none;
+  position: absolute; top: var(--pad-t);
+  left: max(50% - 210px, var(--lane-l, 344px)); right: max(50% - 210px, var(--lane-r, 344px));
+  display: grid; gap: 6px; justify-items: center; align-content: start; z-index: 25; pointer-events: none;
 }
+.play[data-toasts="below"] .toasts { top: var(--lane-t, 120px); left: var(--pad-l); right: var(--pad-r); }
+/* below the corner columns (phones) the lane eats into the town: keep only the two newest */
+.play[data-toasts="below"] .toast:nth-last-child(n+3) { display: none; }
 .toast {
   display: grid; gap: 2px; padding: 7px 13px 8px 11px; max-width: 100%; box-sizing: border-box;
   border-left: 3px solid var(--line-strong);
@@ -234,6 +239,14 @@
 .play:has(.dlg) .dock, .play:has(.dlg) .keyhints { opacity: 0; pointer-events: none; }
 .dock, .keyhints { transition: opacity 0.2s ease; }
 .corner { display: flex; gap: 6px; }
+/* narrow desktop windows: the key hints go first (they are on the title and in the help card), then the
+   dock drops its words and keeps glyphs + values */
+@media (max-width: 820px) { .keyhints { display: none; } }
+@media (max-width: 600px) {
+  .dock { gap: 6px; }
+  .dock .btn { padding-inline: 10px; }
+  .dock .btn-word, .dock .btn > span:not([class]) { display: none; }
+}
 
 /* ---- cards: errand log, controls, pause --------------------------------------------------------------- */
 .modal {
@@ -276,6 +289,9 @@
 .keys dt { display: flex; gap: 3px; align-items: center; font: 10px/1 var(--font-pixel); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg); }
 .keys dd { margin: 0; color: var(--muted); }
 .help-cols { display: grid; gap: 18px; }
+.help-cols .keys { grid-template-columns: 8.5em 1fr; }
+.help-sub { margin-bottom: 9px; }
+.tglyph { font: 15px/1 var(--font-ui); }
 .help-note { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); line-height: 1.45; }
 .card-pause { width: min(340px, 100%); }
 .pause-stats { display: flex; gap: 14px; margin-top: 8px; font: 10px/1.2 var(--font-pixel); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -297,7 +313,7 @@
   position: absolute; inset: 0; z-index: 40; pointer-events: auto;
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 24px;
   padding: var(--pad-t) var(--pad-r) calc(var(--pad-b) + 10px) var(--pad-l);
-  animation: fade 0.9s ease;
+  animation: fade 0.9s ease 0.25s both; /* the town shows first as the loading paper lifts, then the caption */
 }
 .title.is-leaving { animation: fadeOut 0.7s ease forwards; pointer-events: none; }
 @keyframes fadeOut { to { opacity: 0; } }
@@ -318,6 +334,62 @@
 .title .confirm { margin-top: 8px; }
 .title-card { position: relative; align-self: end; width: 268px; box-sizing: border-box; padding: 12px 14px 13px; background: var(--chip); border: 1px solid var(--line); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .title-card .keys { margin-top: 9px; font-size: 12px; }
+
+/* ---- loading (until store.ready) --------------------------------------------------------------------- */
+/* Plain paper over the canvas while the town builds; the caption sits exactly where index.css puts the
+   pre-React one (#root:empty), so the hand-over is seamless. */
+.loading {
+  will-change: opacity;
+  position: absolute; inset: 0; z-index: 60; pointer-events: auto;
+  display: grid; place-items: center; background: var(--bg);
+  transition: opacity 0.9s ease, visibility 0.9s;
+}
+.loading.is-done { opacity: 0; visibility: hidden; pointer-events: none; }
+.loading-in { position: relative; display: grid; justify-items: center; }
+.loading-text {
+  font: 11px/1.2 var(--font-pixel); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  white-space: nowrap;
+}
+.lamps {
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 18px;
+  display: flex; gap: 12px; align-items: flex-end;
+}
+.lamp { position: relative; display: block; width: 27px; height: 42px; }
+.lamp-cup { position: absolute; left: 0; top: 0; display: block; }
+.lamp-fire {
+  position: absolute; left: 0; top: 0; width: 27px; height: 15px; opacity: 1; will-change: opacity;
+  animation: 4.14s linear infinite;
+}
+.lamp:nth-child(1) .lamp-fire { animation-name: lampLit1; }
+.lamp:nth-child(2) .lamp-fire { animation-name: lampLit2; }
+.lamp:nth-child(3) .lamp-fire { animation-name: lampLit3; }
+.lamp:nth-child(4) .lamp-fire { animation-name: lampLit4; }
+.lamp:nth-child(5) .lamp-fire { animation-name: lampLit5; }
+/* nine beats of 0.46 s: lamps catch on beats 1-5, all five burn, then dim together on the last beat */
+@keyframes lampLit1 { 0%, 10.6% { opacity: 0; } 11.1%, 88.9% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes lampLit2 { 0%, 21.7% { opacity: 0; } 22.2%, 88.9% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes lampLit3 { 0%, 32.8% { opacity: 0; } 33.3%, 88.9% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes lampLit4 { 0%, 43.9% { opacity: 0; } 44.4%, 88.9% { opacity: 1; } 95%, 100% { opacity: 0; } }
+@keyframes lampLit5 { 0%, 55.1% { opacity: 0; } 55.6%, 88.9% { opacity: 1; } 95%, 100% { opacity: 0; } }
+.lamp-flame { position: absolute; left: 0; top: 0; display: block; will-change: opacity; animation: 0.84s steps(1, end) infinite; }
+.lamp-flame-a { animation-name: flickA; }
+.lamp-flame-b { opacity: 0; animation-name: flickB; }
+.lamp:nth-child(2) .lamp-flame { animation-delay: -0.23s; }
+.lamp:nth-child(3) .lamp-flame { animation-delay: -0.51s; }
+.lamp:nth-child(4) .lamp-flame { animation-delay: -0.12s; }
+.lamp:nth-child(5) .lamp-flame { animation-delay: -0.66s; }
+@keyframes flickA { 0% { opacity: 1; } 63% { opacity: 0; } }
+@keyframes flickB { 0% { opacity: 0; } 63% { opacity: 1; } }
+.lamp-glow {
+  position: absolute; left: 50%; top: 2px; width: 34px; height: 34px; margin-left: -17px; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, #f6c24e 34%, transparent), transparent);
+}
+.loading.is-done .lamp-fire { animation: none; opacity: 1; }
+.loading-note {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 14px;
+  width: max-content; max-width: min(36ch, calc(100vw - 48px)); text-align: center; text-wrap: balance;
+  font-size: 12.5px; line-height: 1.45; color: var(--muted); animation: fade 0.8s ease;
+}
 
 /* ---- touch --------------------------------------------------------------------------------------------- */
 .touch { position: absolute; inset: 0; pointer-events: none; transition: opacity 0.25s ease, visibility 0.25s; }
@@ -359,7 +431,6 @@
   .area { padding: 6px 10px 7px; gap: 3px; }
   .area-name .latin { font-size: 18px; }
   .area-name .bod { font-size: 13px; }
-  .toasts { top: calc(var(--pad-t) + 96px); width: calc(100% - 32px); min-width: 0; }
   .dlg { padding: 10px 13px 9px; }
   .dlg-text { font-size: 16px; }
   .card { padding: 14px 14px 16px; }

@@ -13,6 +13,8 @@ export interface PCtx {
   tall: Parts;
   /** Bikes, cars, benches, bins, cylinders, crates, plants, shrines: plain material. */
   small: Parts;
+  /** Cables and ropes: occluding, but cast no shadows (1-px wire shadows on the asphalt read as rail tracks). */
+  wires: Parts;
   boxes: BoxInit[];
   circles: CircleInit[];
   lamps: Lamp[];
@@ -34,7 +36,7 @@ export interface Anchor { x: number; z: number; y: number; top: number; kind: 'p
 
 export function makeCtx(): PCtx {
   return {
-    tall: new Parts(), small: new Parts(), boxes: [], circles: [], lamps: [], flags: [], signs: [], extra: [],
+    tall: new Parts(), small: new Parts(), wires: new Parts(), boxes: [], circles: [], lamps: [], flags: [], signs: [], extra: [],
     obs: new Obstacles(), anchors: [], stats: {}, marks: [],
   };
 }

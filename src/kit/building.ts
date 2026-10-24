@@ -21,7 +21,7 @@ import { roadFrame } from '../world/layout';
 import { groundY } from '../world/terrain';
 import { WALLS, ROOFS, PAL } from '../core/palette';
 import { rng, pick, clamp, type Rng } from '../core/math';
-import { makeSign, signSize, type SignSpec } from './sign';
+import { makeSign, signSize, textWidthPx, SIGN_PX, type SignSpec } from './sign';
 
 export type RoofKind = 'flat' | 'tin' | 'tinHip' | 'terrace';
 export type GroundFloor = 'shop' | 'cafe' | 'house' | 'hotel' | 'blank' | 'garage';
@@ -256,6 +256,10 @@ type Face = 'front' | 'back' | 'left' | 'right';
 function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
   const r = rng(((spec.seed ?? 1) * 7919 + 17) >>> 0);
   const ch = (p: number) => r() < p;
+  // Secondary stream for the back- and side-wall details (sills, bars, drain pipes, damp streaks): drawing them
+  // from `r` would shift every later roll, and with it the roofs, signs and colours the street builders tuned.
+  const q = rng(((spec.seed ?? 1) * 104723 + 911) >>> 0);
+  const qc = (p: number) => q() < p;
   const w = Math.max(2.4, spec.w), d = Math.max(2.4, spec.d);
   const fh = Math.max(2.4, spec.floorH ?? 2.9);
   const nF = clamp(Math.round(spec.floors), 1, 6);
@@ -442,7 +446,20 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
       if (det === 2 && tib) P.taper(ww + 0.56, 0.03, ww + 0.26, 0.03, wh + 0.32, [cx, sy - 0.16, 0], BLACK);
       P.box(ww + 0.12, wh + 0.12, 0.05, [cx, sy + wh / 2, 0.015], frameC);
       P.box(ww, wh, 0.05, [cx, sy + wh / 2, 0.03], ch(0.5) ? PAL.glassDay : PAL.glass, glow);
-      if (det === 0) return;
+      if (det === 0) {
+        // back windows: a 1-px sill, bars or a mullion, and now and then a curtain behind the glow
+        P.box(ww + 0.14, 0.05, 0.1, [cx, sy - 0.035, 0.05], trim);
+        if (style === 'grill' && qc(0.6)) {
+          P.box(LINE, wh, 0.03, [cx, sy + wh / 2, 0.07], barC);
+          P.box(ww, LINE, 0.03, [cx, sy + wh * 0.55, 0.07], barC);
+        } else P.box(LINE, wh, 0.03, [cx, sy + wh / 2, 0.07], frameC);
+        if (lit && qc(0.5)) {
+          const cc = CURTAINS[Math.floor(q() * CURTAINS.length)];
+          P.box(ww * 0.4, wh * 0.88, 0.02, [cx + (qc(0.5) ? -1 : 1) * ww * 0.27, sy + wh * 0.48, 0.062], cc,
+            { emit: mixHex(cc, PAL.windowLit, 0.55), emitNight: true, emitIntensity: 0.6 });
+        }
+        return;
+      }
       P.box(ww + 0.18, 0.06, 0.12, [cx, sy - 0.05, 0.06], trim);
       if (det === 1) {
         P.box(LINE, wh, 0.03, [cx, sy + wh / 2, 0.07], style === 'grill' ? barC : frameC);
@@ -916,6 +933,34 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
         beam(P, [mx, 1.92, 0.08], [mx + 0.2, H - 0.1, 0.06], 0.03, BLACK);
       });
     }
+    // back wall: damp streaks under the roof band, a drain pipe down from the roof (shoe at the foot)
+    face('back', () => {
+      const n = 1 + Math.floor(q() * 3);
+      for (let k = 0; k < n; k++) {
+        const sx = -(bx0 + 0.3 + q() * (bw - 0.6)), L = 0.7 + q() * 1.7;
+        P.box(0.1 + q() * 0.12, L, 0.012, [sx, H - st - L / 2, 0.006], shade(colAt(H - st - L / 2), 0.84));
+      }
+      if (nF >= 2 && qc(0.8)) {
+        const px = qc(0.5) ? -(bx0 + 0.32) : -(bx1 - 0.32);
+        const pc = qc(0.65) ? 0x2c2c30 : PAL.slate;
+        const foot = Math.max(0.12, gRel(-px, zB) + 0.12);
+        P.box(0.09, H - 0.1 - foot, 0.09, [px, (H - 0.1 + foot) / 2, 0.08], pc);
+        P.box(0.09, 0.09, 0.14, [px, H - 0.12, 0.04], pc);
+        P.box(0.11, 0.06, 0.2, [px, foot + 0.02, 0.13], pc);
+        // pipe clamps (1-px light bands)
+        for (let fy = fh; fy < H - 0.3; fy += fh) P.box(0.12, LINE, 0.12, [px, fy - st - 0.15, 0.08], shade(pc, 1.6));
+      }
+    });
+    // open side walls: a streak or two of their own
+    for (const f of ['left', 'right'] as const) {
+      if (party[f]) continue;
+      face(f, () => {
+        for (let k = 0, n = 1 + Math.floor(q() * 2); k < n; k++) {
+          const sx = (q() - 0.5) * (d - 0.8), L = 0.6 + q() * 1.4;
+          P.box(0.1 + q() * 0.1, L, 0.012, [sx, H - st - L / 2, 0.006], shade(colAt(H - st - L / 2), 0.86));
+        }
+      });
+    }
     for (const f of ['left', 'right'] as const) {
       if (!party[f] || nF < 3 || !ch(0.35)) continue;
       face(f, () => fauxSign(0, H - fh * 0.9, Math.min(3, d * 0.6), 1.2,
@@ -981,6 +1026,8 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
     const partyAny = !!(party.left || party.right);
     if (partyAny && roof === 'tinHip' && spec.roof === undefined) roof = 'tin';
     let roofTop = H;
+    /** Tin roof: how far its front edge (eave or verge) overhangs the front wall, and how far below H it hangs. */
+    let frontEave = 0, frontEaveDrop = 0;
     const rebar = spec.rebar ?? (unfinished || (roof === 'flat' && ch(0.3)));
     const roofReachable = !!stairs && nF === 1;
 
@@ -1195,6 +1242,8 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
       const rise = (Sp / 2) * tn;
       // eaves overhang; shrunk when eaves would run along a party wall (hip, or a gable facing the street)
       const ovE = partyAny && (hip || !along) ? 0.1 : 0.35;
+      frontEave = along || hip ? ovE : 0.25;
+      frontEaveDrop = along || hip ? ovE * tn + 0.06 : 0;
       // verge overhang at each ridge end (in roof-local -X / +X); none against a party wall
       const ovA = along ? (party.left ? 0.02 : 0.25) : 0.25;
       const ovB = along ? (party.right ? 0.02 : 0.25) : 0.25;
@@ -1279,15 +1328,27 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
         s.w = clamp(Math.max(signSize({ ...s, w: undefined, h: undefined }).w, bw * 0.72), 0.8, bw - 0.4);
       }
       const shopLike = ground === 'shop' || ground === 'cafe' || ground === 'garage';
+      if (s.w === undefined && ground === 'hotel') {
+        // hotel name boards: wide and tall enough for double-size letters (1-px letters break up when the iso
+        // camera foreshortens the board), as big as the frontage allows
+        s.w = clamp(Math.max(signSize({ ...s, w: undefined, h: undefined }).w, (textWidthPx(s.text) * 2 + 8) * SIGN_PX), 0.8, bw - 0.4);
+        if (s.h === undefined) s.h = s.bod ? 1.1 : 0.72;
+      }
       if (s.h === undefined) s.h = shopLike ? (s.bod ? 1.1 : 0.72) : s.bod ? 0.9 : 0.5;
       if (ground === 'hotel' && (roof === 'flat' || roof === 'terrace')) {
         // hotel name board standing on the roof parapet
         signAt(bcx, H + 0.3 + signSize(s).h / 2, zF + 0.06, s);
+      } else if (nF === 1 && frontEave > 0) {
+        // single storey under a tin roof: on the band the board would vanish under the eave, so it stands on
+        // the eave fascia, in front of the sheets
+        s.h = Math.min(s.h, 0.9);
+        signAt(bcx, H - frontEaveDrop - 0.04 + s.h / 2, zF + frontEave + 0.06, s);
       } else if (balconyOnFirst) {
         // hung on the first-floor balcony front
         if (s.w !== undefined) s.w = Math.min(s.w, bHi - bLo - 0.1);
-        s.h = Math.min(s.h, 0.8);
-        signAt((bLo + bHi) / 2, fh + 0.45, zF + 0.72 + 0.035, s);
+        // (a tall board — Tibetan line over double-size English — hangs a little below the balcony slab)
+        s.h = Math.min(s.h, 1.1);
+        signAt((bLo + bHi) / 2, fh + 0.45 - (s.h - Math.min(s.h, 0.8)) * 0.5, zF + 0.72 + 0.035, s);
       } else {
         // across the first-floor band, above the shutters / awning
         signAt(bcx, Math.max(2.5 + signSize(s).h / 2, fh - 0.05), zF + 0.06, s);
@@ -1298,6 +1359,12 @@ function buildImpl(P: Parts, spec: BuildingSpec, at: Placement): BuiltBuilding {
     // ---- colliders ---------------------------------------------------------------------------------------------------------
     const mainTop = H; // roof floor / wall top (parapets get their own boxes when the roof is reachable)
     box(bx0, zB, bx1, recess ? zG : zF, yLow, mainTop);
+    // door marker, buried in the front wall (so it changes nothing for walking): lets the street dressing keep
+    // doorways clear of gas cylinders, crates and parked bikes
+    if (ground !== 'blank' && ground !== 'garage') {
+      const zd = (recess ? zG : zF) - 0.14;
+      box(doorX - 0.5, zd - 0.08, doorX + 0.5, zd + 0.08, 0, 2.1, 'door');
+    }
     if (recess) {
       box(bx0, zG, bx1, zF, fh - st - 0.05, mainTop, 'overhang');
       if (nSteps === 0) box(bx0, zG, bx1, zF, yLow, 0, 'plinth');

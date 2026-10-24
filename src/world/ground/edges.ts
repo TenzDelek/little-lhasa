@@ -140,7 +140,33 @@ export function buildEdges(): EdgeBuild {
       flush();
     }
   }
+  for (const [id, s] of SPEED_BREAKERS) speedBreaker(parts, ROADS.find((r) => r.id === id)!, s);
   return { parts, colliders, stats };
+}
+
+/** Speed breakers (road id, arc length of the hump): Dharamkot Road below Amala's, Bhagsu Road by the tea shop. */
+const SPEED_BREAKERS: readonly (readonly [string, number])[] = [['dharamkot-road', 31.4], ['bhagsu-road', 30]];
+
+/**
+ * A low painted hump across the asphalt (≤ 7 cm, no collider: the boy just walks over it): a trapezoid
+ * section 0.6 m deep, striped yellow / black across the road, the paint worn on the wheel tracks.
+ */
+function speedBreaker(parts: Parts, road: Road, s: number) {
+  const f = roadFrame(road, s);
+  const span = road.width + 0.1;
+  const n = Math.round(span / 0.42);
+  const sw = span / n;
+  const ahead = roadFrame(road, s + 0.3), behind = roadFrame(road, s - 0.3);
+  const pitch = -Math.atan2(ahead.y - behind.y, 0.6);
+  for (let i = 0; i < n; i++) {
+    const lat = -span / 2 + sw * (i + 0.5);
+    const x = f.x + f.nx * lat, z = f.z + f.nz * lat;
+    const y = groundY(x, z) - 0.012;
+    const wheel = Math.abs(Math.abs(lat) - road.width * 0.25) < 0.45; // wheel tracks: scuffed paint
+    const yellow = i % 2 === 0;
+    const col = yellow ? (wheel ? 0xb59a3c : PAL.railingYellow) : wheel ? 0x3a3a3c : 0x26262a;
+    parts.group([x, y, z], f.yaw, () => parts.taper(sw + 0.002, 0.64, sw + 0.002, 0.26, 0.075, [0, 0, 0], col, { rot: [pitch, 0, 0] }));
+  }
 }
 
 /** Low concrete parapet + pipe railing along a run of drop-off, with a collider per railing span. */

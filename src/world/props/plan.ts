@@ -5,7 +5,7 @@
 // Territory (see the brief): the road-edge strip (road edge → +0.5 m) of the four asphalt roads outside the
 // plazas and outside the square / temple / market-lane areas, the air above 4.5 m over those roads, and
 // parking bays on the road surface along the kerb.
-import { PLAZAS, ROADS, roadById, roadFrame, roadLength, type Road } from '../layout';
+import { PLAZAS, ROADS, SPOTS, roadById, roadFrame, roadLength, type Road } from '../layout';
 import { groundY, plazaQuery } from '../terrain';
 import { collision, type BoxCollider, type Collider } from '../../core/collision';
 import type { BoxInit, CircleInit } from '../../core/collision';
@@ -46,6 +46,8 @@ export function roadDist(road: Road, x: number, z: number) {
 
 /** True where this module may put things on the ground (not someone else's plaza / court / lane / kora). */
 export function territoryOK(x: number, z: number, pad = 0): boolean {
+  // the lost puppy's nook behind the tea shack (Bhagsu Road, north side, s ≈ 48.7–52.7): its mouth stays open
+  if (Math.hypot(x - SPOTS.puppyHideout.x, z - SPOTS.puppyHideout.z) < 3.4 + pad) return false;
   if (inRect(SQUARE_T, x, z, pad)) return false;
   if (inRect(TEMPLE_T, x, z, pad)) return false;
   for (const p of PLAZAS) if (inRect(p.rect, x, z, 1 + pad)) return false;

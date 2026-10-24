@@ -10,6 +10,7 @@ import { makeCtx, type Ctx } from './ctx';
 import { JOG, LANE, TEMPLE, toWorld, type OBB } from './util';
 import { STALLS, VENDOR_BACK } from './spots';
 import { momoStall, balepCart, laphingStall } from './stalls';
+import { momoYard, laphingYard } from './yards';
 import { bookShop, thangkaShop, stallBackdrops } from './specials';
 import { backfill, fillRow, placeBuilding, type Placed } from './buildings';
 import { alley } from './alleys';
@@ -33,6 +34,8 @@ export interface MarketBuild {
   footprints: OBB[];
   /** Debug: shop kinds and their front positions. */
   shops: { kind: string; x: number; z: number }[];
+  /** Debug: the stall view corridors. */
+  sight: Ctx['sight'];
 }
 
 const LAMP_BUDGET = 38;
@@ -64,6 +67,8 @@ export function buildMarket(): MarketBuild {
   stallFootprint(c, STALLS.momo, VENDOR_BACK.momo + 1.0, 5.2);
   stallFootprint(c, STALLS.balep, VENDOR_BACK.balep + 0.6, 2.6);
   stallFootprint(c, STALLS.laphing, VENDOR_BACK.laphing + 0.9, 2.8);
+  momoYard(c);
+  laphingYard(c);
   const back = stallBackdrops(c);
 
   // 2. special shops
@@ -146,6 +151,6 @@ export function buildMarket(): MarketBuild {
   return {
     meshes, colliders: c.colliders, circles: c.circles, lamps, interact: c.interact, flags: c.flags, darchor: c.darchor,
     stats: { buildings: rows.length + laneB + back2 + 5, drawCalls: meshes.length, tris: Math.round(tris), lamps: lamps.length, ms: Math.round(performance.now() - t0) },
-    footprints: c.footprints, shops: c.shops,
+    footprints: c.footprints, shops: c.shops, sight: c.sight,
   };
 }

@@ -49,6 +49,8 @@ export function buildProps(): PropsBuild {
   const meshes: Object3D[] = [];
   if (c.tall.size) meshes.push(...c.tall.toMeshes(partsMaterial({ occlude: true }), CHUNK));
   if (c.small.size) meshes.push(...c.small.toMeshes(partsMaterial(), CHUNK));
+  // cables: bigger chunks (they are long and thin) and no shadows
+  if (c.wires.size) meshes.push(...c.wires.toMeshes(partsMaterial({ occlude: true }), CHUNK * 2, false));
   if (c.signs.length) meshes.push(...mergeSigns(c.signs));
   meshes.push(...c.extra);
   let tris = 0;

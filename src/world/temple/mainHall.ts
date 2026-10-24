@@ -8,7 +8,7 @@ import type { Acc } from './acc';
 import { CY, MAIN } from './site';
 import {
   BEAM_COLORS, EAVE_COLORS, INK, WHITEWASH, lbox, mixHex, paintRow, pemaFrieze, rafterEnds, shade, tibDoor,
-  tibPillar, tibWindow, type Frame,
+  tibPillar, tibWindow, tiledRoof, type Frame,
 } from './util';
 
 export const OCHRE = mixHex(mixHex(PAL.templeYellow, PAL.wallOchre, 0.4), 0xb8a888, 0.28);
@@ -115,12 +115,8 @@ export function buildMainHall(acc: Acc) {
     B.box(uW * 2, ROOF - FR, len, [0, (FR + ROOF) / 2, mid], OCHRE_DARK);
     B.box(uW * 2 + 0.7, 0.16, len + 0.7, [0, FR + 0.28, mid], shade(PAL.templeMaroon, -0.3));
     B.box(uW * 2 + 0.6, 0.06, len + 0.6, [0, FR + 0.39, mid], WHITEWASH);
-    // roof slab + low maroon parapet, outer faces flush with the walls
-    B.box(uW * 2 - 0.1, 0.06, len - 0.1, [0, ROOF + 0.03, mid], 0x857c6e);
-    // roof slabs: lighter joints every ~1.6 m, a few darker patched slabs and rain stains
-    for (let x = -uW + 1.6; x < uW - 0.4; x += 1.6) B.box(0.05, 0.02, len - 0.7, [x, ROOF + 0.065, mid], 0x988f80);
-    for (let z = back + 1.7; z < upFront - 0.4; z += 1.6) B.box(uW * 2 - 0.7, 0.02, 0.05, [0, ROOF + 0.065, z], 0x988f80);
-    for (const [px, pz] of [[-4.6, -6.2], [3.8, 5.6], [-5.2, 3.4], [5.2, -3.0]]) B.box(1.5, 0.02, 1.5, [px, ROOF + 0.07, pz], 0x766e61);
+    // roof deck (red-oxide tiles, rain stains) inside a low maroon parapet, outer faces flush with the walls
+    tiledRoof(B, -uW + 0.05, mid - len / 2 + 0.05, uW - 0.05, mid + len / 2 - 0.05, ROOF + 0.06, 31, { stains: 5 });
     // water tanks on a stand and a stair hut at the back corners
     for (const x of [4.4, 5.6]) {
       B.box(1.0, 0.4, 1.0, [x, ROOF + 0.2, back + 1.1], PAL.concreteDark);
@@ -169,7 +165,7 @@ export function buildMainHall(acc: Acc) {
     // raised clerestory (skylight lantern over the assembly hall) between the pavilion and the front
     const cz0 = 2.4, cz1 = 6.2, cw = 2.8, ch = 1.15;
     B.box(cw * 2, ch, cz1 - cz0, [0, ROOF + ch / 2, (cz0 + cz1) / 2], OCHRE);
-    B.box(cw * 2 - 0.1, 0.08, cz1 - cz0 - 0.1, [0, ROOF + ch + 0.04, (cz0 + cz1) / 2], 0x857c6e);
+    tiledRoof(B, -cw + 0.05, cz0 + 0.05, cw - 0.05, cz1 - 0.05, ROOF + ch + 0.08, 32, { base: 0.08 });
     for (const sx of [-1, 1]) B.box(0.18, 0.16, cz1 - cz0 + 0.3, [sx * (cw + 0.06), ROOF + ch + 0.08, (cz0 + cz1) / 2], PAL.templeMaroon);
     for (const sz of [cz0, cz1]) B.box(cw * 2 + 0.3, 0.16, 0.18, [0, ROOF + ch + 0.08, sz], PAL.templeMaroon);
     gyaltsen(B, 0, ROOF + ch + 0.16, (cz0 + cz1) / 2, 0.7);

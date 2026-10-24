@@ -10,19 +10,40 @@ import { makeSign } from '../../kit/sign';
 import { type Ctx, inFrame, wpos } from './ctx';
 import { STALLS, VENDOR_BACK, type StallFrame } from './spots';
 import { localBox, rod, hangBoxFrom } from './util';
-import { bottle, gasCylinder, momoPlate, steamerStack, stool, umbrella } from './items';
+import { bottle, gasCylinder, momoPlate, steamerStack, stool, stripedUmbrella, umbrella } from './items';
 
 const HALF_PI = Math.PI / 2;
 
 /** Floor height for a stall: the ground under its counter (stalls stand on the graded verge). */
 const floorAt = (f: StallFrame) => groundY(f.x, f.z);
 
-function sign(c: Ctx, f: StallFrame, y: number, l: [number, number, number], text: string, bod: string, bg: number, fg: number, w?: number) {
-  const m = makeSign({ text, bod, bg, fg, w, glow: true });
+function sign(c: Ctx, f: StallFrame, y: number, l: [number, number, number], text: string, bod: string, bg: number, fg: number, w?: number, h?: number, turn = 0) {
+  const m = makeSign({ text, bod, bg, fg, w, h, glow: true });
   const p = wpos(f, y, l);
   m.position.set(p[0], p[1], p[2]);
-  m.rotation.y = f.yaw;
+  m.rotation.y = f.yaw + turn;
   c.meshes.push(m);
+}
+
+/** Two boards back to back (the second turned by `turn2`), so the name reads from both sides. */
+function sign2(c: Ctx, f: StallFrame, y: number, l: [number, number, number], text: string, bod: string, bg: number, fg: number, w: number, h: number, axis: 'z' | 'x') {
+  const t = axis === 'z' ? 0 : HALF_PI;
+  const ox = axis === 'z' ? 0 : 0.028, oz = axis === 'z' ? 0.028 : 0;
+  sign(c, f, y, [l[0] + ox, l[1], l[2] + oz], text, bod, bg, fg, w, h, t);
+  sign(c, f, y, [l[0] - ox, l[1], l[2] - oz], text, bod, bg, fg, w, h, t + Math.PI);
+}
+
+/** Keep (local point, height above the floor) of a stall in view from the default camera (see sight.ts). */
+function keepInView(c: Ctx, f: StallFrame, y: number, l: [number, number, number], hw: number) {
+  const p = wpos(f, y, l);
+  c.sight.push({ x: p[0], z: p[2], y: p[1], hw });
+}
+
+/** Striped tarp sheet over x ∈ [x0, x1], from (z0, y0) at the back down to (z1, y1) at the front. */
+function stripedTarp(B: Ctx['bld'], x0: number, x1: number, z0: number, y0: number, z1: number, y1: number, cols: readonly number[], n: number) {
+  const L = Math.hypot(z1 - z0, y0 - y1), slope = Math.atan2(y0 - y1, z1 - z0);
+  const sw = (x1 - x0) / n;
+  for (let i = 0; i < n; i++) B.box(sw + 0.002, 0.035, L, [x0 + sw * (i + 0.5), (y0 + y1) / 2, (z0 + z1) / 2], cols[i % cols.length], { rot: [slope, 0, 0] });
 }
 
 // ---- Tashi's momo stall -----------------------------------------------------------------------------------
@@ -49,14 +70,16 @@ export function momoStall(c: Ctx) {
     P.box(0.3, 0.03, 0.2, [-0.85, 0.915, -0.05], 0xc0c4c8); // tray
     for (let i = 0; i < 8; i++) P.box(0.05, 0.04, 0.05, [-0.95 + (i % 4) * 0.065, 0.95, -0.1 + Math.floor(i / 4) * 0.08], 0xf2ead8);
 
-    // gas stove on a stand, LPG cylinder, steamer tower
-    P.box(0.55, 0.62, 0.5, [1.3, 0.31, -0.05], 0x3a3a3a);
-    P.box(0.5, 0.04, 0.45, [1.3, 0.64, -0.05], 0x2a2a2a);
-    gasCylinder(P, 1.32, 0, 0.45);
-    rod(P, [1.32, 0.66, 0.45], [1.3, 0.6, 0.15], 0.025, 0xc8a040);
-    const top = steamerStack(P, 1.3, 0.66, -0.05, 4, 0.23);
-    c.steam.push(at(f, y, top, 7, 1.15, 1.0));
-    c.steam.push(at(f, y, [1.3 + 0.2, 0.9, -0.05 + 0.1], 3, 0.6, 0.6)); // leaking seam
+    // gas stove on a stand just outside the tarp (the steam rises into the open air where everyone can see
+    // it), LPG cylinder behind it, a tall tower of aluminium steamers
+    const SX = 2.08;
+    P.box(0.55, 0.62, 0.5, [SX, 0.31, -0.05], 0x3a3a3a);
+    P.box(0.5, 0.04, 0.45, [SX, 0.64, -0.05], 0x2a2a2a);
+    gasCylinder(P, SX + 0.05, 0, -0.6);
+    rod(P, [SX + 0.05, 0.66, -0.6], [SX, 0.6, -0.25], 0.025, 0xc8a040);
+    const top = steamerStack(P, SX, 0.66, -0.05, 5, 0.25);
+    c.steam.push(at(f, y, top, 9, 1.45, 1.7));
+    c.steam.push(at(f, y, [SX + 0.22, 0.95, 0.05], 3, 0.7, 0.8)); // leaking seam
     // back table: dough board, filling bowl, second steamer, big pot
     const bz = -back - 0.68;
     P.box(1.7, 0.78, 0.45, [0, 0.39, bz], PAL.woodDoor);
@@ -68,15 +91,19 @@ export function momoStall(c: Ctx) {
     const top2 = steamerStack(P, 0.62, 0.81, bz, 2, 0.2);
     c.steam.push(at(f, y, top2, 5, 0.9, 0.85));
     P.cyl(0.2, 0.18, 0.3, [1.32, 0, bz - 0.05], 0x5a5a5a, 8); // water drum
-    // tarp roof on bamboo poles (slopes down toward the customer)
-    const poles: Array<[number, number, number]> = [[-1.2, 0.36, 2.15], [1.62, 0.36, 2.15], [-1.2, bz - 0.28, 2.5], [1.62, bz - 0.28, 2.5]];
+    // striped tarp roof on bamboo poles (slopes down toward the customer); the back poles run up past it to
+    // carry the name board, so MOMO reads from the street and from behind the stall alike
+    const poles: Array<[number, number, number]> = [[-1.2, 0.36, 2.15], [1.62, 0.36, 2.15], [-1.2, bz - 0.28, 3.95], [1.62, bz - 0.28, 3.95]];
     for (const [px, pz, ph] of poles) B.box(0.06, ph, 0.06, [px, ph / 2, pz], 0x9a8a5a);
-    const z0 = bz - 0.4, z1 = 0.95, y0 = 2.55, y1 = 2.13;
-    const L = Math.hypot(z1 - z0, y0 - y1), slope = Math.atan2(y0 - y1, z1 - z0);
-    B.box(3.05, 0.035, L, [0.21, (y0 + y1) / 2, (z0 + z1) / 2], 0x3d6a9a, { rot: [slope, 0, 0] });
-    B.cyl(0.045, 0.045, 3.05, [0.21 - 1.525, y1 - 0.02, z1], 0x34598a, 6, { rot: [0, 0, -HALF_PI] });
+    const z0 = bz - 0.4, z1 = 0.95, y0 = 2.95, y1 = 2.15;
+    stripedTarp(B, 0.21 - 1.525, 0.21 + 1.525, z0, y0, z1, y1, [0xb8392e, 0xece2c6], 7);
+    B.cyl(0.045, 0.045, 3.05, [0.21 - 1.525, y1 - 0.02, z1], 0x8a2a22, 6, { rot: [0, 0, -HALF_PI] });
+    // yellow valance along the front edge with a row of little bulbs
+    B.box(3.05, 0.16, 0.02, [0.21, y1 - 0.11, z1 + 0.03], PAL.templeYellow);
+    for (let i = 0; i < 9; i++) B.box(0.05, 0.06, 0.05, [0.21 - 1.4 + i * 0.35, y1 - 0.24, z1 + 0.05], i % 3 === 1 ? 0xff6a5a : PAL.stringLight, { emit: i % 3 === 1 ? 0xff6a5a : PAL.stringLight, emitNight: true, emitIntensity: 2.0 });
+    B.box(2.95, 0.05, 0.05, [0.21, 3.9, bz - 0.28], 0x9a8a5a); // board rail
     // a bare bulb under the tarp
-    B.box(0.02, 0.3, 0.02, [0.3, 2.05, 0.0], 0x2a2a2a);
+    B.box(0.02, 0.56, 0.02, [0.3, 2.18, 0.0], 0x2a2a2a);
     B.box(0.08, 0.1, 0.08, [0.3, 1.86, 0.0], 0xfff0c0, { emit: PAL.lampWarm, emitNight: true, emitIntensity: 1.6 });
     // a little tin of chillies hanging, and a towel
     hangBoxFrom(c.hang, 2.1, 0.3, 0.42, 0.02, [-0.9, 1.89, 0.6], 0xeeeae0);
@@ -87,14 +114,18 @@ export function momoStall(c: Ctx) {
     for (const sx of [-0.65, 0.65]) P.box(0.06, 0.45, 0.32, [-2.05 + sx, 0.225, 0.2], PAL.woodDoor);
   });
   sign(c, f, y, [0.2, 2.25, 0.98], 'MOMO', 'མོག་མོག', PAL.templeRed, PAL.templeYellow);
+  sign2(c, f, y, [0.21, 3.45, -VENDOR_BACK.momo - 0.96], 'MOMO', '', PAL.templeYellow, PAL.templeRed, 2.3, 0.8, 'z');
+  keepInView(c, f, y, [0.2, 0.9, 0], 2.1);
+  keepInView(c, f, y, [2.08, 1.2, -0.05], 0.9);
 
   c.colliders.push(
     localBox(f, 0, 0, 1.96, 0.6, y - 0.5, y + 0.9, 'stall'),
-    localBox(f, 1.3, 0.05, 0.6, 0.85, y - 0.5, y + 1.25, 'stall'),
+    localBox(f, 2.08, -0.2, 0.6, 1.2, y - 0.5, y + 1.45, 'stall'),
     localBox(f, 0.2, -back - 0.68, 2.6, 0.5, y - 0.5, y + 0.85, 'stall'),
     localBox(f, -2.05, 0.2, 1.5, 0.38, y - 0.5, y + 0.48, 'bench'),
     localBox(f, -1.2, 0.36, 0.1, 0.1, y, y + 2.15, 'pole'),
-    localBox(f, -1.2, -back - 0.96, 0.1, 0.1, y, y + 2.5, 'pole'),
+    localBox(f, -1.2, -back - 0.96, 0.1, 0.1, y, y + 3.95, 'pole'),
+    localBox(f, 1.62, 0.36, 0.1, 0.1, y, y + 2.15, 'pole'),
   );
   const lp = wpos(f, y, [0.3, 1.86, 0]);
   c.lamps.push({ x: lp[0], y: lp[1], z: lp[2], color: PAL.lampWarm, intensity: 5, distance: 7 });
@@ -201,15 +232,23 @@ export function laphingStall(c: Ctx) {
     stool(P, -1.05, 0, -0.3, 0x3a5aa0);
     stool(P, 1.0, 0, 0.3, 0xb83a2e);
     // big umbrella
-    umbrella(B, -0.62, 0, -0.58, 0x4a6aa0, 2.3, 1.3);
+    // big yellow-and-red umbrella (laphing yellow): it reads from far up the road and from the default camera,
+    // which looks over Dolma's shoulder
+    stripedUmbrella(B, -0.62, 0, -0.58, [0xe0b23a, 0xb8392e], 2.35, 1.4);
     B.box(0.06, 0.1, 0.06, [-0.62, 1.95, -0.52], 0xfff0c0, { emit: PAL.lampWarm, emitNight: true, emitIntensity: 1.6 });
+    // name board on a pole beside the table, double-sided (street side and back)
+    B.box(0.06, 2.55, 0.06, [1.22, 1.275, -0.25], 0x8a7a5a);
+    B.box(0.05, 0.05, 0.4, [1.22, 2.5, -0.25], 0x8a7a5a);
   });
   sign(c, f, y, [0, 0.62, 0.37], 'LAPHING', 'ལ་ཕིང', 0xe8d070, PAL.templeRed, 1.1);
+  sign2(c, f, y, [1.22, 2.08, -0.25], 'LAPHING', 'ལ་ཕིང', 0xe8d070, PAL.templeRed, 1.5, 0.78, 'z');
+  keepInView(c, f, y, [0, 0.78, -0.2], 1.9);
   c.colliders.push(
     localBox(f, 0, 0, 1.36, 0.7, y - 0.5, y + 0.8, 'stall'),
     localBox(f, -0.8, -1.4, 0.52, 0.52, y - 0.5, y + 0.77, 'stall'),
     localBox(f, 0.4, -1.45, 1.1, 0.5, y - 0.5, y + 0.43, 'stall'),
     localBox(f, -0.62, -0.58, 0.08, 0.08, y, y + 2.3, 'pole'),
+    localBox(f, 1.22, -0.25, 0.1, 0.1, y, y + 2.55, 'pole'),
     localBox(f, -1.0, 0.25, 0.32, 0.32, y - 0.5, y + 0.43, 'stool'),
     localBox(f, -1.05, -0.3, 0.32, 0.32, y - 0.5, y + 0.43, 'stool'),
     localBox(f, 1.0, 0.3, 0.32, 0.32, y - 0.5, y + 0.43, 'stool'),

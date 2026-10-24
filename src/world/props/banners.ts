@@ -177,7 +177,7 @@ function hang(c: PCtx, list: Banner[], road: Road, s: number, r: () => number, k
   ropes.push([corner(sA, -1), A2 ?? [A[0], A[1] - 0.5, A[2]]], [corner(-sA, -1), B2 ?? [B[0], B[1] - 0.5, B[2]]]);
   for (const [p, q] of ropes) {
     const L = Math.hypot(q[0] - p[0], q[2] - p[2]);
-    wire(c.tall, p, q, Math.min(0.12, L * 0.03), 1, ROPE, 0, 0.022);
+    wire(c.wires, p, q, Math.min(0.12, L * 0.03), 1, ROPE, 0, 0.022);
   }
   // hem pipe along the top (a bamboo stick or a pipe slid through the hem)
   beam(c.tall, corner(-1, 1), corner(1, 1), 0.035, 0x8a7a56);
@@ -224,7 +224,7 @@ function dharamkotHead(c: PCtx, list: Banner[], r: () => number) {
     if (span > 14) continue;
     const sag = safeSag(A, B, 0.35, 4.9);
     if (sag > 0) {
-      wire(c.tall, A, B, sag, 3, 0x1c1c1f, 0.09, 0.026);
+      wire(c.wires, A, B, sag, 3, 0x2a2a2f, 0.09, 0.026);
       c.tall.box(0.08, 0.08, 0.08, A, 0x3a3a3e);
       c.tall.box(0.08, 0.08, 0.08, B, 0x3a3a3e);
       count(c, 'crossCables', 3);

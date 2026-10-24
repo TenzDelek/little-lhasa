@@ -5,9 +5,10 @@
 //   top-centre   toasts                                          bottom-right DAY/NIGHT · CAMERA · SOUND · PAUSE
 //   bottom       interaction prompt / dialogue box               touch       joystick + thumb cluster
 //   cards        errand log (J), controls (H), pause menu (Esc), title screen
+//   loading      five butter lamps on plain paper until store.ready, then the title fades in (Loading.tsx)
 import '../audio/synth';
 import './hud.css';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useGame } from '../game/store';
 import { debug } from '../game/debug';
 import { useKeyRouter } from './keys';
@@ -19,8 +20,34 @@ import { DialogueBox } from './Dialogue';
 import { HelpCard, PauseMenu, QuestLog } from './Panels';
 import { CornerButtons, Dock, KeyHints } from './Dock';
 import { TouchControls } from './Touch';
+import { Loading } from './Loading';
 
 const THEME = { day: '#f6f3ea', night: '#0e1220' };
+
+/** Toasts sit in the top band between the area / tracker column and the purse column when there is room,
+ *  otherwise just below the taller of the two. Measured, because both columns change size as you play
+ *  (area names, the satchel, touch corner buttons), and never per frame — only when they resize. */
+function useToastLane(play: RefObject<HTMLDivElement | null>, on: boolean) {
+  useLayoutEffect(() => {
+    const el = play.current;
+    const tl = el?.querySelector<HTMLElement>(':scope > .tl');
+    const tr = el?.querySelector<HTMLElement>(':scope > .tr');
+    if (!on || !el || !tl || !tr) return;
+    const update = () => {
+      const o = el.getBoundingClientRect(), a = tl.getBoundingClientRect(), b = tr.getBoundingClientRect();
+      const left = Math.ceil(a.right - o.left + 14), right = Math.ceil(o.right - b.left + 14);
+      const band = o.width - left - right >= 300;
+      el.style.setProperty('--lane-l', `${left}px`);
+      el.style.setProperty('--lane-r', `${right}px`);
+      el.style.setProperty('--lane-t', `${Math.ceil(Math.max(a.bottom, b.bottom) - o.top + 10)}px`);
+      el.dataset.toasts = band ? 'band' : 'below';
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el); ro.observe(tl); ro.observe(tr);
+    return () => ro.disconnect();
+  }, [play, on]);
+}
 
 export function Hud() {
   const root = useRef<HTMLDivElement>(null);
@@ -29,7 +56,10 @@ export function Hud() {
   const started = useGame((s) => s.started);
   const paused = useGame((s) => s.paused);
   const panel = useGame((s) => s.panel);
+  const ready = useGame((s) => s.ready);
   const touch = useUi((s) => s.touch);
+  const play = useRef<HTMLDivElement>(null);
+  useToastLane(play, started && !debug.shot);
 
   // theme: the stage (and the page behind it) follow the scene's day / night
   useLayoutEffect(() => {
@@ -38,6 +68,9 @@ export function Hud() {
     if (st) st.dataset.scene = scene;
     document.documentElement.dataset.scene = scene;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME[scene]);
+    // allow the page's day / night cross-fade only after the first paint in the right theme
+    const raf = requestAnimationFrame(() => { document.documentElement.dataset.themed = '1'; });
+    return () => cancelAnimationFrame(raf);
   }, [night]);
 
   useLayoutEffect(() => { setStage((root.current?.parentElement as HTMLElement | null) ?? null); }, []);
@@ -68,7 +101,7 @@ export function Hud() {
   return (
     <div ref={root} className={`hud${touch ? ' is-touch' : ''}${!started ? ' on-title' : ''}`}>
       {started && (
-        <div className={`play${modal ? ' is-dim' : ''}`}>
+        <div ref={play} className={`play${modal ? ' is-dim' : ''}`} inert={modal}>
           <div className="tl">
             <AreaBlock />
             <Tracker />
@@ -96,7 +129,8 @@ export function Hud() {
           {panel === 'help' && <HelpCard />}
         </div>
       )}
-      <Title />
+      {ready && <Title />}
+      <Loading />
     </div>
   );
 }

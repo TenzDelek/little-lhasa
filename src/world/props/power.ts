@@ -5,7 +5,7 @@ import { Vector3 } from 'three';
 import type { V3 } from '../../core/geom';
 import { groundY } from '../terrain';
 import { powerPole, wire, srng, sagAt, type PoleKind } from '../../kit/street';
-import { type PCtx, count, solid } from './ctx';
+import { type PCtx, count, mark, solid } from './ctx';
 import { STREETS, edgePt, freeRange, postPt, stripOK, type EdgePt, type Facade } from './plan';
 import type { Road } from '../layout';
 
@@ -72,6 +72,7 @@ export function buildPower(c: PCtx): PoleInfo[] {
       poles.push(info);
       c.anchors.push({ x: p.x, z: p.z, y: p.y, top: P.top[1], kind: 'pole', road: road.id, s: p.s });
       count(c, 'poles');
+      mark(c, 'pole:' + road.id, p.x, p.z);
       side = p.side;
       if (r() < 0.22) side = side === 1 ? -1 : 1; // the line hops across the road now and then
     }
@@ -81,9 +82,12 @@ export function buildPower(c: PCtx): PoleInfo[] {
       const span = Math.hypot(B.top[0] - A.top[0], B.top[2] - A.top[2]);
       if (span > 42) continue;
       const sag = safeSag(A.top, B.top, 0.25 + span * 0.022);
-      if (sag > 0) wire(c.tall, A.top, B.top, sag, 3);
+      if (sag > 0) wire(c.wires, A.top, B.top, sag, 3, CABLE);
       const sagL = safeSag(A.low, B.low, 0.3 + span * 0.026);
-      if (sagL > 0) wire(c.tall, A.low, B.low, sagL, r() < 0.5 ? 2 : 4, CABLE, r() < 0.5 ? 0.3 : 0.27, 0.032);
+      // LT: one black aerial bundled cable (as the hill towns have now) instead of 2–4 bare conductors, which
+      // read as a railway track from the iso camera. (The two rolls keep the seed sequence of the old version.)
+      r(); r();
+      if (sagL > 0) wire(c.wires, A.low, B.low, sagL, 1, CABLE_BLACK, 0, 0.052);
       count(c, 'spans');
     }
     // tie the first pole into the square's network (nearest pole of theirs)
@@ -95,17 +99,19 @@ export function buildPower(c: PCtx): PoleInfo[] {
       if (q) {
         const tgt: V3 = [q.x, q.y1 - 0.25, q.z];
         const sag = safeSag(F.top, tgt, 0.6);
-        if (sag > 0) { wire(c.tall, F.top, tgt, sag, 3); count(c, 'spans'); }
+        if (sag > 0) { wire(c.wires, F.top, tgt, sag, 3, CABLE); count(c, 'spans'); }
       }
     }
     // service drops: each pole feeds a few façades within ~10 m, on both sides of the road
     poles.forEach((P) => {
       const seen = new Set<unknown>();
-      const n = 1 + Math.floor(r() * 3);
+      // (to façades within ~±5 m along the road: longer drops ran almost parallel to the street and doubled
+      // the power line)
+      const n = 1 + Math.floor(r() * 2.4);
       let made = 0;
       for (let tries = 0; tries < 10 && made < n; tries++) {
         const sd: 1 | -1 = r() < 0.6 ? P.p.side : (P.p.side === 1 ? -1 : 1);
-        const f = frontage(c, road, P.p.s + (r() - 0.5) * 20, sd);
+        const f = frontage(c, road, P.p.s + (r() - 0.5) * 10, sd);
         if (!f || seen.has(f.c)) continue;
         seen.add(f.c);
         const roadY = P.p.roadY;
@@ -114,11 +120,11 @@ export function buildPower(c: PCtx): PoleInfo[] {
         const a: V3 = [P.low[0] + (r() - 0.5) * 0.5, P.low[1] - 0.02, P.low[2] + (r() - 0.5) * 0.5];
         const b: V3 = [f.x, h, f.z];
         const span = Math.hypot(b[0] - a[0], b[2] - a[2]);
-        if (span < 1.2 || span > 18) continue;
+        if (span < 1.2 || span > 12) continue;
         const sag = safeSag(a, b, 0.12 + span * 0.025);
         if (sag < 0) continue;
         const bundle = r() < 0.4 ? 2 : 1;
-        wire(c.tall, a, b, sag, bundle, pick3(r), 0.07, 0.026);
+        wire(c.wires, a, b, sag, bundle, pick3(r), 0.07, 0.026);
         // insulator hook / meter clamp where it meets the wall
         c.tall.box(0.07, 0.07, 0.07, [b[0], b[1], b[2]], 0xe6e3dc);
         made++;
@@ -154,7 +160,7 @@ export function buildCrossCables(c: PCtx) {
       const sag = safeSag(a, b, 0.15 + span * (0.03 + r() * 0.04));
       if (sag < 0) continue;
       const n = 1 + Math.floor(r() * (dense ? 3 : 2));
-      wire(c.tall, a, b, sag, n, pick3(r), 0.06 + r() * 0.08, 0.024);
+      wire(c.wires, a, b, sag, n, pick3(r), 0.06 + r() * 0.08, 0.024);
       c.tall.box(0.06, 0.06, 0.06, a, 0x3a3a3e);
       c.tall.box(0.06, 0.06, 0.06, b, 0x3a3a3e);
       count(c, 'crossCables');

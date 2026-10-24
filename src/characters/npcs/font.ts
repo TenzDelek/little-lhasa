@@ -50,13 +50,45 @@ export const isTibetan = (s: string) => /[\u0F00-\u0FFF]/.test(s);
 
 export interface Mask { w: number; h: number; bits: Uint8Array }
 
+// ---- the Tibetan web font ----------------------------------------------------------------------------------
+// index.html links Noto Serif Tibetan from Google Fonts so every machine draws the same glyphs. Canvas text
+// does not wait for web fonts: rasterising before the face has arrived would bake a system fallback (or
+// tofu boxes) into the bubble atlas for good. So Tibetan is rasterised only once document.fonts has loaded
+// the face for the glyphs we need, or after a timeout (offline: fall back to whatever the system has).
+export const TIBETAN_FONT = '"Noto Serif Tibetan"';
+const TIBETAN_WEIGHT = 500;
+let tibetanReady = false;
+let tibetanPending: Promise<void> | null = null;
+
+/** True once Tibetan can be rasterised (web font loaded, or given up waiting). */
+export const tibetanFontReady = () => tibetanReady;
+
+/** Resolves when the Tibetan web font is loaded for the glyphs in `sample` (or after `timeoutMs`). */
+export function whenTibetanFont(sample: string, timeoutMs = 12000): Promise<void> {
+  if (tibetanReady) return Promise.resolve();
+  tibetanPending ??= (async () => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
+    if (fonts && typeof fonts.load === 'function') {
+      const spec = `${TIBETAN_WEIGHT} 14px ${TIBETAN_FONT}`;
+      const end = performance.now() + timeoutMs;
+      // the stylesheet may still be on its way (no matching face yet): retry until a face loads
+      while (performance.now() < end) {
+        try { if ((await fonts.load(spec, sample)).length) break; } catch { break; }
+        await new Promise((res) => setTimeout(res, 300));
+      }
+    }
+    tibetanReady = true;
+  })();
+  return tibetanPending;
+}
+
 /** Rasterise a Tibetan string into a hard 1-bit mask (cropped to its ink). */
 export function rasterScript(s: string, sizePx = 14): Mask {
   const cw = Math.ceil(s.length * sizePx * 0.9) + 8, ch = sizePx * 3;
   const c = document.createElement('canvas');
   c.width = cw; c.height = ch;
   const x = c.getContext('2d', { willReadFrequently: true })!;
-  x.font = `${sizePx}px "Kailasa", "Noto Sans Tibetan", "Noto Serif Tibetan", "Microsoft Himalaya", "Jomolhari", sans-serif`;
+  x.font = `${TIBETAN_WEIGHT} ${sizePx}px ${TIBETAN_FONT}, "Kailasa", "Noto Sans Tibetan", "Microsoft Himalaya", "Jomolhari", serif`;
   x.textBaseline = 'middle';
   x.fillStyle = '#000';
   x.fillText(s, 2, ch / 2);

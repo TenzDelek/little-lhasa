@@ -5,6 +5,7 @@ import type { V3 } from '../../core/geom';
 import type { FlagLine } from '../../kit/flags';
 import type { Acc } from './acc';
 import { CY } from './site';
+import { galleryPostTop as galleryPost } from './gallery';
 
 export function buildCourtFlags(acc: Acc) {
   const roofTop = CY + 9.6 + 0.45;           // main hall parapet top
@@ -16,8 +17,7 @@ export function buildCourtFlags(acc: Acc) {
   const tree: V3 = [-4.0, CY + 6.6, 98.9];
   const blockY3 = CY + 0.3 + 8.4 + 0.5, blockY2 = CY + 0.3 + 5.6 + 0.5;
   const chortenTop: V3 = [-4.6, CY + 4.1, 119.6];
-  const galleryPost = (z: number): V3 => [25.1, CY + 3.1, z];
-  const lampHouse = { x0: 16.7, x1: 21.3, z0: 97.0, y: CY + 3.32 };
+  const lampHouse = { x0: 16.7, x1: 21.3, z0: 97.0, z1: 100.6, y: CY + 3.32 };
 
   const L: [V3, V3, number?][] = [
     // pavilion finial → roof corners
@@ -28,12 +28,12 @@ export function buildCourtFlags(acc: Acc) {
     [[10, roofTop, hall.z0], [9, CY + 5.6, 92.6]],
     // gate → lamp house → gallery; gate → tree; along the north wall
     [gateE, [lampHouse.x0, lampHouse.y, lampHouse.z0]],
-    [[lampHouse.x1, lampHouse.y, lampHouse.z0], galleryPost(98.1)],
+    [[lampHouse.x1, lampHouse.y, lampHouse.z1], galleryPost(0)],
     [gateW, tree],
     [gateW, [-7.0, CY + 1.4, 92.9]], [gateE, [28.8, CY + 1.4, 92.9]],
     // over the wheel-gallery lane
-    [[hall.x1, roofTop, 108.5], galleryPost(105.9)], [[hall.x1, roofTop, 114.5], galleryPost(113.8)],
-    [[hall.x1, roofTop, 120.5], galleryPost(121.7)],
+    [[hall.x1, roofTop, 108.5], galleryPost(1)], [[hall.x1, roofTop, 114.5], galleryPost(4)],
+    [[hall.x1, roofTop, 120.5], galleryPost(6)],
     // main hall ↔ Kalachakra ↔ tree ↔ NW quarters
     [[hall.x0, roofTop, hall.z0], [kala.x1, kalaY, kala.z0]], [[hall.x0, roofTop, 113.2], [kala.x1, kalaY, kala.z1]],
     [[kala.x0, kalaY, kala.z0], tree], [tree, [-9.9, blockY3, 104.3]], [tree, [-9.9, blockY3, 98.3]],
@@ -43,7 +43,7 @@ export function buildCourtFlags(acc: Acc) {
     [chortenTop, [hall.x0, roofTop, hall.z1]], [chortenTop, [kala.x0 + 0.5, kalaY, kala.z1]],
     [[-7.8, blockY2, 127.5], chortenTop], [[3.0, blockY2, 127.5], [hall.x0, roofTop, hall.z1]],
     // south side
-    [[17.7, blockY2, 127.5], [hall.x1, roofTop, hall.z1]], [[26.3, blockY2, 127.5], galleryPost(121.7)],
+    [[17.7, blockY2, 127.5], [hall.x1, roofTop, hall.z1]], [[26.3, blockY2, 127.5], galleryPost(6)],
     [[3.0, blockY2, 130.9], [10.45, CY + 1.3, 131.2]], [[13.55, CY + 1.3, 131.2], [17.7, blockY2, 130.9]],
   ];
   let seed = 1;

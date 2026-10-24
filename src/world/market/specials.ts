@@ -111,19 +111,15 @@ export function thangkaShop(c: Ctx): Placed | null {
 }
 const frameX = (w: number) => -w / 2 + 1.3;
 
-/** Buildings set back behind the three food stalls (the stall stands on their forecourt). */
-export function stallBackdrops(c: Ctx) {
-  const momo = placeBuilding(c, {
-    road: TEMPLE, side: STALLS.momo.side, s: STALLS.momo.s + 0.2, w: 6.4, kind: 'general', seed: 9301, setback: 3.3,
-    floors: 2, roof: 'flat', minDepth: 3.2, noDress: true, fd: 0.45, spec: { awning: 0x8a3a36 },
-  });
+/**
+ * The building set back behind the balep cart (the cart stands on its forecourt). Tashi's momo stall and
+ * Dolma's laphing table stand on the camera side of their roads, so behind them there are open yards
+ * (yards.ts) instead of buildings: anything built there would hide them from the default camera.
+ */
+export function stallBackdrops(c: Ctx): { momo: Placed | null; balep: Placed | null; laph: Placed | null } {
   const balep = placeBuilding(c, {
     road: TEMPLE, side: STALLS.balep.side, s: STALLS.balep.s, w: 5.6, kind: 'bakery', seed: 9302, setback: 2.75,
     floors: 4, minDepth: 3.2, noDress: true, fd: 0.45,
   });
-  const laph = placeBuilding(c, {
-    road: JOG, side: STALLS.laphing.side, s: STALLS.laphing.s, w: 5.8, kind: 'tailor', seed: 9303, setback: 3.15,
-    floors: 2, roof: 'flat', minDepth: 3.0, noDress: true, fd: 0.45,
-  });
-  return { momo, balep, laph };
+  return { momo: null, balep, laph: null };
 }

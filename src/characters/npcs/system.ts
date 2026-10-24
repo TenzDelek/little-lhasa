@@ -53,6 +53,8 @@ export interface Npc extends BubbleOwner {
   ipos: Vector3;
   hop: number;
   heardPuppy: boolean;
+  /** Height of the bubble anchor above the feet (lower for people sitting). */
+  headOff: number;
 }
 
 const _pt: RoutePoint = { x: 0, z: 0, y: 0, tx: 0, tz: 1, nx: -1, nz: 0 };
@@ -82,6 +84,9 @@ export class NpcSystem {
   private groupT = new Map<string, { speaker: number; t: number }>();
   private groupList: { speaker: number; t: number }[] = [];
   private extras: Group;
+  /** Our own people's colliders, and a cached list of everyone else's moving bodies (dogs, cows, the puppy, monkeys). */
+  private own = new Set<CircleCollider>();
+  private others: CircleCollider[] = [];
 
   constructor() {
     this.group.name = 'npcs';
@@ -106,7 +111,7 @@ export class NpcSystem {
         talking: false, byeT: 0, greetCD: 2 + r() * 4, excuseCD: 0, convo: Math.floor(r() * 4),
         present: true, goneDelay: -1, animate: true, shown: true, active: true,
         collider: { kind: 'circle', x: 0, z: 0, r: 0.25, y0: -1e5, y1: -1e5 + 1 },
-        head: new Vector3(), ipos: new Vector3(), hop: 0, heardPuppy: false,
+        head: new Vector3(), ipos: new Vector3(), hop: 0, heardPuppy: false, headOff: headOffset(def, rig),
       };
       this.npcs.push(n);
       this.byId.set(def.id, n);
@@ -204,6 +209,7 @@ export class NpcSystem {
     for (const n of this.npcs) {
       const d = collision.addDynamic(n.collider);
       n.collider = d.collider;
+      this.own.add(d.collider);
       offs.push(d.remove);
       const def = n.def;
       const radius = def.mode === 'sit' ? 2.1 : def.idleAct === 'talk' || def.idleAct === 'give' ? 1.9 : 1.7;
@@ -222,8 +228,10 @@ export class NpcSystem {
     // test handle (dev builds only), next to window.__game / __store
     const w = window as unknown as Record<string, unknown>;
     if (import.meta.env.DEV) w.__npcs = { sys: this, collision, sources: SOURCES, probe, footDist };
+    this.refreshOthers();
     return () => {
       for (const o of offs) o();
+      this.own.clear(); this.others.length = 0;
       if (w.__npcs && (w.__npcs as { sys: NpcSystem }).sys === this) delete w.__npcs;
     };
   }
@@ -264,6 +272,7 @@ export class NpcSystem {
     this.checkT -= Math.min(rawDt, 0.1);
     if (this.checkT <= 0) {
       this.checkT = 0.5;
+      this.refreshOthers();
       if (collision.version !== this.seenVersion) {
         if (collision.version !== this.pendingVersion) { this.pendingVersion = collision.version; this.pendingAt = this.clock; }
         else if (this.clock - this.pendingAt > 0.6) {
@@ -319,10 +328,16 @@ export class NpcSystem {
       root.rotation.y = n.yaw;
       n.collider.x = n.x; n.collider.z = n.z; n.collider.y0 = n.y; n.collider.y1 = n.y + n.rig.dims.H;
       n.ipos.set(n.x, n.y, n.z);
-      n.head.set(n.x, n.visY + n.rig.dims.H + (n.def.mode === 'debateSit' || n.def.mode === 'sit' ? -0.35 : 0.14), n.z);
+      n.head.set(n.x, n.visY + n.headOff, n.z);
     }
 
     this.bubbles.update(camera, Math.min(rawDt, 0.1));
+  }
+
+  /** Moving bodies that are not our people (cached: the set only changes when animals mount / unmount). */
+  private refreshOthers() {
+    this.others.length = 0;
+    for (const c of collision.dynamics()) if (!this.own.has(c)) this.others.push(c);
   }
 
   // ---- walkers -----------------------------------------------------------------------------------------
@@ -370,6 +385,14 @@ export class NpcSystem {
           if (Math.abs(m.x - n.x) > 1.6 || Math.abs(m.z - n.z) > 1.6) continue;
           if (this.ahead(n, m.x, m.z, 0.5)) { block = Math.min(block, Math.max(0.35, _hit.f)); push += _hit.push * 0.8; }
         }
+        // animals: step round dogs, cows, the puppy (slow down, never stop for good: a dog asleep on the
+        // pavement is walked round, or at worst stepped past)
+        for (let k = 0; k < this.others.length; k++) {
+          const c = this.others[k];
+          if (c.y1 < n.y + 0.05 || c.y0 > n.y + 1.5) continue;
+          if (Math.abs(c.x - n.x) > 2.4 || Math.abs(c.z - n.z) > 2.4) continue;
+          if (this.ahead(n, c.x, c.z, 0.3 + c.r, 2.2)) { block = Math.min(block, Math.max(0.3, _hit.f)); push += _hit.push; }
+        }
       }
       if (!byPlayer) n.blockT = Math.max(0, n.blockT - dt * 2);
       n.block = damp(n.block, block, block < n.block ? 10 : 2.5, dt);
@@ -398,10 +421,10 @@ export class NpcSystem {
    * Is (px, pz) in n's way? Writes the slow-down factor and a sideways push (along n's right normal) into
    * _hit and returns true.
    */
-  private ahead(n: Npc, px: number, pz: number, clear: number): boolean {
+  private ahead(n: Npc, px: number, pz: number, clear: number, look = 1.7): boolean {
     const dx = px - n.x, dz = pz - n.z;
     const fwd = dx * n.tx + dz * n.tz;
-    if (fwd <= -0.1 || fwd > 1.7) return false;
+    if (fwd <= -0.1 || fwd > look) return false;
     const lat = dx * n.nx + dz * n.nz;
     if (Math.abs(lat) > clear + 0.15) return false;
     const dir = Math.abs(lat) < 0.05 ? (n.route?.inward || 1) : -Math.sign(lat);
@@ -528,7 +551,7 @@ export class NpcSystem {
         if (near && !n.talking) yawWant = n.home.yaw + clamp(angleDelta(n.home.yaw, toP), -0.7, 0.7);
       }
     } else if (def.mode === 'sit') {
-      action = 'sit'; seatY = def.seatY ?? 0.45;
+      action = 'sit'; seatY = def.seatY ?? SEAT_BENCH;
       yawWant = n.home.yaw;
     } else if (def.mode === 'pray') {
       yawWant = n.home.yaw;
@@ -538,7 +561,7 @@ export class NpcSystem {
       yawWant = n.home.yaw;
       action = 'clap';
     } else if (def.mode === 'debateSit') {
-      action = 'sit'; seatY = def.seatY ?? 0.16;
+      action = 'sitCross'; seatY = def.seatY ?? SEAT_CUSHION;
       yawWant = n.home.yaw;
       lookPitch = -0.28;
     }
@@ -585,7 +608,6 @@ export class NpcSystem {
   /** Extra poses the rig's action set does not cover (applied after animateCharacter). */
   private overrides(n: Npc, _dt: number) {
     const b = n.rig.bones, def = n.def, t = game.time + (def.phase ?? 0);
-    if (def.mode === 'sit') { b.skirt.rotation.set(-0.85, 0, 0); b.skirt.scale.y = 0.9; } // long chuba draping off the knees
     if (def.id === NPC_IDS.amala && !n.talking) {
       // spin the hand prayer wheel (right) and count the mala (left) while she sits
       b.armR.rotation.set(-0.3, 0, -0.12); b.foreR.rotation.set(-1.35, 0, 0); b.handR.rotation.set(0, 0, Math.sin(t * 6) * 0.25);
@@ -597,12 +619,7 @@ export class NpcSystem {
       b.head.rotation.x += Math.sin(t * 4.1) * 0.05;
     }
     if (def.mode === 'debateSit') {
-      // cross-legged on the cushion
-      b.thighL.rotation.set(-1.4, 0, 0.95); b.thighR.rotation.set(-1.4, 0, -0.95);
-      b.shinL.rotation.set(2.45, 0, 0); b.shinR.rotation.set(2.45, 0, 0);
-      b.footL.rotation.set(-0.5, 0, 0); b.footR.rotation.set(-0.5, 0, 0);
-      b.skirt.rotation.set(-1.4, 0, 0); b.skirt.scale.set(1.3, 0.5, b.skirt.scale.z); // robe folded over the knees
-      // answer with a raised hand every other clap
+      // cross-legged on the cushion (rig 'sitCross'); answer with a raised hand every other clap
       const p = (t % 3.4) / 3.4;
       if (p > 0.45 && p < 0.8) { b.armR.rotation.set(-0.9, 0, -0.2); b.foreR.rotation.set(-1.0 + Math.sin(t * 5) * 0.2, 0, 0); }
     }
@@ -637,6 +654,15 @@ export class NpcSystem {
 
 
 // ---- placement helpers -----------------------------------------------------------------------------------
+const SEAT_BENCH = 0.45, SEAT_CUSHION = 0.1;
+
+/** Bubble anchor height above the feet: just over the head, standing or sitting (matches rig 'sit' / 'sitCross'). */
+function headOffset(def: NpcDef, rig: Rig) {
+  const d = rig.dims;
+  if (def.mode === 'sit') return d.H - (d.hipJ - ((def.seatY ?? SEAT_BENCH) + d.legT * 0.5)) + 0.1;
+  if (def.mode === 'debateSit') return d.H - (d.hipJ - ((def.seatY ?? SEAT_CUSHION) + d.legT * 0.5 + 0.015)) + 0.1;
+  return d.H + 0.14;
+}
 /** Nearest free standing spot to `at` (rings out to 1.6 m). */
 function freeSpot(at: Spot): Spot {
   if (!probe(at.x, at.z, 0.26).blocked) return at;

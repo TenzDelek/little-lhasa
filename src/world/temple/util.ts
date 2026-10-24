@@ -4,7 +4,7 @@
 import type { Parts, V3 } from '../../core/geom';
 import type { BoxInit } from '../../core/collision';
 import { PAL } from '../../core/palette';
-import type { Rng } from '../../core/math';
+import { rng, type Rng } from '../../core/math';
 
 // ---- colour ------------------------------------------------------------------------------------------------
 export function shade(hex: number, k: number) {
@@ -22,6 +22,46 @@ export const INK = 0x1d1a1a;      // black window surrounds
 export const WHITEWASH = PAL.templeWhite;
 export const LIME = 0xe8e2d2;     // older whitewash
 export const SOOT = 0x3a3330;
+
+// ---- flat roofs -------------------------------------------------------------------------------------------
+// Red-oxide tiled roof decks (the usual waterproof finish on flat roofs in Dharamshala). Warm terracotta with
+// pale 1-px grout lines on a ~0.6 m grid, so a roof never reads like the grey courtyard flagstones — not even
+// through the see-through cut when the boy walks behind a building.
+export const ROOF_TILE = 0x92503f;
+const ROOF_TILE_DARK = 0x804537;
+const ROOF_TILE_LIGHT = 0x9f5c47;
+const ROOF_GROUT = 0xb08068;
+const ROOF_STAIN = 0x6c3c31;
+
+/**
+ * Tiled roof deck over the rectangle [x0, x1] × [z0, z1] of the current group, surface (tile tops) at y.
+ * `stains` dark rain-water patches are dropped at random spots (deterministic per seed).
+ */
+export function tiledRoof(p: Parts, x0: number, z0: number, x1: number, z1: number, y: number, seed = 1, o: { tile?: number; stains?: number; base?: number } = {}) {
+  const r = rng(seed);
+  const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  const base = o.base ?? 0.06;
+  p.box(w, base, d, [cx, y - base / 2, cz], ROOF_TILE);
+  const T = o.tile ?? 0.72;
+  const nx = Math.max(1, Math.round(w / T)), nz = Math.max(1, Math.round(d / T));
+  const tw = w / nx, td = d / nz;
+  // a scatter of tiles a shade off (re-laid / weathered)
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    const k = r();
+    if (k > 0.24) continue;
+    p.box(tw - 0.045, 0.012, td - 0.045, [x0 + tw * (i + 0.5), y + 0.006, z0 + td * (j + 0.5)], k < 0.15 ? ROOF_TILE_DARK : ROOF_TILE_LIGHT);
+  }
+  // grout lines
+  for (let i = 1; i < nx; i++) p.box(0.045, 0.016, d, [x0 + tw * i, y + 0.008, cz], ROOF_GROUT);
+  for (let j = 1; j < nz; j++) p.box(w, 0.016, 0.045, [cx, y + 0.008, z0 + td * j], ROOF_GROUT);
+  // rain stains: dark blotches made of two overlapping slabs
+  for (let s = 0; s < (o.stains ?? 0); s++) {
+    const sw = 0.8 + r() * 1.4, sd = 0.6 + r() * 1.1;
+    const sx = x0 + sw / 2 + r() * Math.max(0, w - sw), sz = z0 + sd / 2 + r() * Math.max(0, d - sd);
+    p.box(sw, 0.02, sd, [sx, y + 0.01, sz], ROOF_STAIN);
+    p.box(sw * 0.6, 0.022, sd * 1.25, [sx + (r() - 0.5) * sw * 0.4, y + 0.011, sz], mixHex(ROOF_STAIN, ROOF_TILE, 0.45));
+  }
+}
 
 // ---- frames -----------------------------------------------------------------------------------------------
 export interface Frame { x: number; z: number; yaw: number; y: number }

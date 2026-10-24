@@ -16,10 +16,14 @@ import { sfx } from '../audio/sfx';
 import { stepPlayer } from './controller';
 import { TENZIN } from './tenzin';
 
-const sp = spawnPoint();
-game.player.pos.set(sp.x, groundY(sp.x, sp.z), sp.z);
-game.player.yaw = sp.ry;
-U.player.value.copy(game.player.pos);
+// first load only: a hot-reload re-run of this module (e.g. after an edit to the rig) must not yank the boy
+// back to the spawn mid-walk
+if (game.player.pos.lengthSq() === 0) {
+  const sp = spawnPoint();
+  game.player.pos.set(sp.x, groundY(sp.x, sp.z), sp.z);
+  game.player.yaw = sp.ry;
+  U.player.value.copy(game.player.pos);
+}
 
 const ACTION_TIME: Record<string, number> = { spin: 0.9, light: 1.1, give: 1.2, talk: 0.6, pet: 1.6, wave: 1.4, bow: 1.4, pray: 1.4, eat: 1.6, point: 1.0 };
 
@@ -37,7 +41,7 @@ function areaName(x: number, z: number): string {
   const pz = plazaQuery(x, z);
   if (pz.edge < 0.5) return pz.plaza.name;
   const rq = roadQuery(x, z);
-  if (rq.edge < 2.5) return rq.road.name;
+  if (rq.edge < 6) return rq.road.name; // front yards, stalls and forecourts belong to their street
   if (z > 85) return 'Tsuglagkhang';
   if (z < -55) return 'Dharamkot Hill';
   if (x > 25) return 'Bhagsu Hillside';

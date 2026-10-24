@@ -14,10 +14,13 @@ import { mat } from '../../core/materials';
 import { hash12, vnoise12 } from '../../core/tsl';
 import { U } from '../../core/uniforms';
 import { PAL } from '../../core/palette';
-import { C, fieldUV, fields, haze, horizon, pixCell, rimKeep } from './shade';
+import { C, fieldUV, fields, haze, horizon, pixCell, rimKeep, uIso } from './shade';
 import { fieldTextures } from './fields';
 import { ROADS, roadFrame } from '../layout';
 import { plazaQuery } from '../terrain';
+
+/** The viewpoint's tree-free view cone (twin of hillside/woods.ts VIEW_CONE: apex, tan of the half angle). */
+const VIEW = { x: 30, z: -81.5, tan: Math.tan((35 * Math.PI) / 180) };
 
 /** Zebra crossings where each asphalt road leaves the Main Square (centre, unit tangent). */
 const CROSSINGS = ROADS.filter((r) => r.kind === 'road').map((r) => {
@@ -85,7 +88,10 @@ export function terrainMaterial() {
     f.assign(mix(f, K.moss, th(n2.mul(0.7).add(n4.mul(0.3)), 0.6, 0.1)));
     f.assign(mix(f, K.grassDeep, th(n4, 0.74, 0.1).mul(0.85)));
     f.assign(mix(f, K.bark, step(0.985, h2)));
-    const forestness = smoothstep(6, 16, dS.add(n1.sub(0.5).mul(10)));
+    // the view north from the Dhauladhar viewpoint is kept free of trees (hillside woods.ts VIEW_CONE): meadow
+    // there instead of a bare forest floor
+    const cone = smoothstep(-1, 5, float(VIEW.z).sub(xz.y).mul(VIEW.tan).sub(abs(xz.x.sub(VIEW.x))));
+    const forestness = smoothstep(6, 16, dS.add(n1.sub(0.5).mul(10))).mul(float(1).sub(cone));
     const land = mix(g, f, th(forestness, 0.5, 0.25)).toVar();
 
     // rock on steep ground
@@ -105,6 +111,14 @@ export function terrainMaterial() {
     b.assign(mix(b, K.grassMid, th(n4.mul(0.6).add(n1.mul(0.4)), 0.76, 0.1)));
     b.assign(mix(b, K.gravelD, step(0.95, h2)));
     land.assign(mix(land, b, th(built, 0.5, 0.3)));
+
+    // beyond the diorama rim (chase camera only; iso discards it): the forest there is the backdrop's chase-only
+    // deodars, so the floor goes from bare needles to a darker, mossy green that reads as shaded woodland
+    const ff = mix(K.grassDeep, K.moss, th(n2.mul(0.6).add(n4.mul(0.4)), 0.5, 0.2)).toVar();
+    ff.assign(mix(ff, K.needleD, th(n3.mul(0.7).add(n4.mul(0.3)), 0.64, 0.15)));
+    ff.assign(mix(ff, K.grassMid, th(n1.mul(0.7).add(n4.mul(0.3)), 0.6, 0.1)));
+    const outside = float(1).sub(smoothstep(0.03, 0.5, F.A.a)).mul(float(1).sub(uIso));
+    land.assign(mix(land, ff.mul(0.88), th(outside.add(n3.sub(0.5).mul(0.3)), 0.5, 0.25)));
 
     // goat paths
     const pc = mix(K.earth, K.mud, th(n4, 0.5, 0.7)).toVar();

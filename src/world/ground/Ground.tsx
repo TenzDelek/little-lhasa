@@ -15,7 +15,7 @@ import { collision } from '../../core/collision';
 import { uIso } from './shade';
 import { terrainMaterial } from './terrainMat';
 import { buildTerrain, CHUNK } from './terrainMesh';
-import { buildGrass, grassMaterial } from './grass';
+import { buildGrass, grassMaterial, trimGrass } from './grass';
 import { buildEdges } from './edges';
 import { buildBackdrop, buildBackdropTrees } from './backdrop';
 
@@ -35,7 +35,7 @@ type GroundObjects = ReturnType<typeof buildGround>;
 export function Ground() {
   const world = useMemo(() => buildGround(), []);
   const live = useRef<GroundObjects | null>(null);
-  const st = useRef({ mode: '', next: 0 });
+  const st = useRef({ mode: '', next: 0, ver: -1, trimIn: -1 });
   const ref = useRef<Group>(null);
 
   useEffect(() => {
@@ -58,6 +58,21 @@ export function Ground() {
       for (const c of w.terrain) c.mesh.visible = !iso || c.inside;
       w.backdrop.visible = w.farTrees.visible = !iso;
       s.next = 0;
+    }
+    // grass that stands in other modules' solid things is trimmed once their colliders are in (and again
+    // whenever they change, after a short settle so a module mounting in pieces triggers one pass)
+    if (collision.version !== s.ver) { s.ver = collision.version; s.trimIn = 0.4; }
+    if (s.trimIn >= 0) {
+      s.trimIn -= raw;
+      if (s.trimIn < 0) {
+        const trimmed = trimGrass(w.grass);
+        if (import.meta.env.DEV) {
+          // dev statistics: placements trimmed so far, by collider tag
+          const g = window as unknown as { __grassTrim?: Record<string, number> };
+          const acc = (g.__grassTrim ??= {});
+          for (const [k, v] of Object.entries(trimmed)) acc[k] = (acc[k] ?? 0) + v;
+        }
+      }
     }
     // grass tiles: only near the camera target (saves draw calls in the chase camera)
     s.next -= raw;

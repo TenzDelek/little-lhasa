@@ -7,7 +7,9 @@
 //                                          action: 'wheelWalk' }));
 //
 // Model space: metres, feet on y = 0, the figure faces +z, its LEFT is +x, its RIGHT is −x (as in Gorshey).
-// Bones are posed only by rotation (plus the hips' height), so geometry never stretches.
+// Bones are posed only by rotation (plus the hips' height and the robe's flare), so geometry never stretches.
+// Long robes (women's chuba, monks' and nuns' shamthab) hang from two skirt bones — hip → knee and knee → hem —
+// so they drape over the knees when sitting on a bench ('sit') or spread over the lap ('sitCross').
 import {
   Bone, Float32BufferAttribute, Group, Object3D, Skeleton, SkinnedMesh, Uint16BufferAttribute, type BufferGeometry,
 } from 'three';
@@ -72,13 +74,13 @@ export interface CharSpec {
 export const BONE_NAMES = [
   'root', 'hips', 'spine', 'chest', 'neck', 'head',
   'armL', 'foreL', 'handL', 'armR', 'foreR', 'handR',
-  'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirt',
+  'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirt', 'skirt2',
 ] as const;
 export type BoneName = (typeof BONE_NAMES)[number];
 const PARENT: Record<BoneName, BoneName | null> = {
   root: null, hips: 'root', spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck',
   armL: 'chest', foreL: 'armL', handL: 'foreL', armR: 'chest', foreR: 'armR', handR: 'foreR',
-  thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirt: 'hips',
+  thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirt: 'hips', skirt2: 'skirt',
 };
 const BI = Object.fromEntries(BONE_NAMES.map((n, i) => [n, i])) as Record<BoneName, number>;
 
@@ -131,7 +133,8 @@ function jointPositions(d: Dims): Record<BoneName, V3> {
     armR: [-d.shX, d.shY - 0.02, 0], foreR: [-d.shX, d.elbowY, 0], handR: [-d.shX, d.wristY, 0],
     thighL: [d.hipX, d.hipJ, 0], shinL: [d.hipX, d.kneeY, 0], footL: [d.hipX, d.ankleY, 0],
     thighR: [-d.hipX, d.hipJ, 0], shinR: [-d.hipX, d.kneeY, 0], footR: [-d.hipX, d.ankleY, 0],
-    skirt: [0, d.waistY, 0],
+    // the robe pivots with the thighs (hip joints) and bends again at the knees
+    skirt: [0, d.hipJ, 0], skirt2: [0, d.kneeY, 0],
   };
 }
 
@@ -215,7 +218,7 @@ export function buildCharacter(input: CharSpec): Rig {
   const cap = (k: number, col = hair) => H.box(hw + 0.024, hh * k, hd + 0.024, [0, top - hh * k / 2 + 0.02, 0], col);
   const back = (k: number, col = hair) => H.box(hw + 0.024, hh * k, 0.04, [0, top - hh * k / 2, -hd / 2 - 0.012], col);
   if (hs === 'shaved') {
-    cap(0.26, mixHex(skin, hair, 0.45));
+    cap(0.24, mixHex(skin, hair, 0.3)); // close-shaved: a faint stubble tone over the crown
   } else if (hs !== 'none') {
     cap(0.3); back(hs === 'short' || hs === 'messy' ? 0.62 : 0.8);
     H.box(0.024, hh * 0.38, hd * 0.7, [hw / 2 + 0.01, top - hh * 0.22, -0.02], hair); // sideburn blocks
@@ -261,7 +264,7 @@ export function buildCharacter(input: CharSpec): Rig {
   P.neck.box(0.075, d.neckH + 0.03, 0.07, [0, d.shY + d.neckH / 2, 0], skin);
 
   // ---- torso / garments ----------------------------------------------------------------------------------
-  const C = P.chest, S = P.spine, Hp = P.hips, K = P.skirt;
+  const C = P.chest, S = P.spine, Hp = P.hips, K = P.skirt, K2 = P.skirt2;
   const chestH = d.shY - d.chestY + 0.025;
   const absH = d.chestY - d.waistY + 0.02;
   const torso = (col: number, upperCol = col) => {
@@ -295,10 +298,21 @@ export function buildCharacter(input: CharSpec): Rig {
       if (band !== undefined) F.box(d.legT * 0.98, 0.02, d.footLen * 0.7, [lx, d.ankleY, d.footLen * 0.2], band);
     }
   };
+  // A skirt that reaches below the knee is split there: the upper part rides the skirt bone, the lower part
+  // skirt2 (it overlaps a little upward so the fold has no notch when the knee bends).
   const skirtTaper = (hemY: number, col: number, flare = 0.1, topW = tw * 1.02, topD = td * 1.04) => {
     const h = d.waistY - hemY;
-    K.taper(topW + flare, topD + flare * 0.8, topW, topD, h, [0, hemY, 0], col);
-    return { h, botW: topW + flare, botD: topD + flare * 0.8 };
+    const botW = topW + flare, botD = topD + flare * 0.8;
+    const split = hemY < d.kneeY - 0.08;
+    if (!split) K.taper(botW, botD, topW, topD, h, [0, hemY, 0], col);
+    else {
+      const at = (y: number) => clamp((y - hemY) / h);
+      const kk = at(d.kneeY);
+      K.taper(lerp(botW, topW, kk), lerp(botD, topD, kk), topW, topD, d.waistY - d.kneeY, [0, d.kneeY, 0], col);
+      const e = Math.min(0.06, botD * 0.4), ke = at(d.kneeY + e);
+      K2.taper(botW, botD, lerp(botW, topW, ke) * 0.985, lerp(botD, topD, ke) * 0.985, d.kneeY + e - hemY, [0, hemY, 0], col);
+    }
+    return { h, botW, botD, split };
   };
 
   if (o === 'chuba') {
@@ -335,11 +349,18 @@ export function buildCharacter(input: CharSpec): Rig {
       const stripes = spec.apron ?? PANGDEN[Math.floor(r() * PANGDEN.length)];
       const top0 = d.waistY - 0.02, bot = hem + 0.08, n = stripes.length;
       const slope = Math.atan(((k.botD - td * 1.04) / 2) / k.h);
-      for (let i = 0; i < n; i++) {
-        const y1 = lerp(top0, bot, i / n), y0 = lerp(top0, bot, (i + 1) / n);
+      const band = (y0: number, y1: number, col: number, B: Parts) => {
         const t = (y0 + y1) / 2;
         const zf = lerp(k.botD / 2, td * 1.04 / 2, (t - hem) / k.h) + 0.01;
-        K.box(tw * 0.78, y1 - y0 + 0.002, 0.012, [0, t, zf], stripes[i], { rot: [slope, 0, 0] });
+        B.box(tw * 0.74, y1 - y0 + 0.002, 0.012, [0, t, zf], col, { rot: [slope, 0, 0] });
+      };
+      for (let i = 0; i < n; i++) {
+        // stripes a touch softer than the raw dye colours, so the apron sits in the town's muted palette
+        const col = mixHex(stripes[i], robe, 0.12);
+        const y1 = lerp(top0, bot, i / n), y0 = lerp(top0, bot, (i + 1) / n);
+        if (!k.split || y0 >= d.kneeY) band(y0, y1, col, K);
+        else if (y1 <= d.kneeY) band(y0, y1, col, K2);
+        else { band(d.kneeY, y1, col, K); band(y0, d.kneeY, col, K2); }
       }
     }
     legs(pants, pants);
@@ -519,7 +540,9 @@ export function attachProp(rig: Rig, side: 'L' | 'R', kind: Held) {
 // ---- animation ---------------------------------------------------------------------------------------------
 export type Action =
   | 'spin' | 'wave' | 'give' | 'bow' | 'pray' | 'light' | 'pet' | 'eat' | 'talk' | 'clap' | 'sit' | 'mala'
-  | 'phone' | 'stick' | 'wheelWalk' | 'point' | 'carry';
+  | 'phone' | 'stick' | 'wheelWalk' | 'point' | 'carry'
+  /** Cross-legged on a cushion / the floor (debate defenders, prayer); seatY = cushion top. */
+  | 'sitCross';
 
 export interface AnimInput {
   /** Frame delta (use game.dt). */
@@ -538,12 +561,15 @@ export interface AnimInput {
   lookYaw?: number;
   /** Head pitch (+ looks down). */
   lookPitch?: number;
-  /** Seat height for 'sit' (hips height, m). */
+  /** Seat surface height above the feet for 'sit' (bench) and 'sitCross' (cushion top), m. */
   seatY?: number;
 }
 
 // target pose scratch (rx, ry, rz per bone) + hips height
 const T = new Float32Array(BONE_NAMES.length * 3);
+// robe scale targets: skirt (x = lap width, y = reach over the thighs, z = thickness × walking flare),
+// skirt2 (y = drop length)
+const KS = new Float32Array(4);
 const set = (b: BoneName, x: number, y = 0, z = 0) => { const i = BI[b] * 3; T[i] = x; T[i + 1] = y; T[i + 2] = z; };
 const add = (b: BoneName, x: number, y = 0, z = 0) => { const i = BI[b] * 3; T[i] += x; T[i + 1] += y; T[i + 2] += z; };
 
@@ -553,6 +579,7 @@ export function animateCharacter(rig: Rig, a: AnimInput) {
   const dt = a.dt;
   if (dt <= 0) return;
   T.fill(0);
+  KS[0] = 1; KS[1] = 1; KS[2] = 1; KS[3] = 1;
 
   // blend weights
   st.walk = damp(st.walk, clamp(a.speed / 1.0), 12, dt);
@@ -582,6 +609,7 @@ export function animateCharacter(rig: Rig, a: AnimInput) {
   set('foreL', -(0.18 + 0.9 * r + 0.25 * Math.max(0, -s) * w)); set('foreR', -(0.18 + 0.9 * r + 0.25 * Math.max(0, s) * w));
   set('head', -lean * 0.6, s * 0.05 * w, 0);
   set('skirt', -lean * 0.5, 0, -c * 0.03 * w);
+  set('skirt2', 0.04 * w * Math.abs(s), 0, -c * 0.035 * w); // the hem swings a little more than the hips
 
   // idle life: breathing, weight shift, looking around
   const idle = 1 - st.walk;
@@ -603,7 +631,7 @@ export function animateCharacter(rig: Rig, a: AnimInput) {
     L('footL', -0.2); L('footR', 0.2);
     L('armL', -0.45, 0, rising ? 0.85 : 1.2); L('armR', -0.25, 0, rising ? -0.85 : -1.2);
     L('foreL', -0.5); L('foreR', -0.5);
-    L('spine', 0.12); L('skirt', -0.15);
+    L('spine', 0.12); L('skirt', -0.15); L('skirt2', 0.1);
   }
   // landing squash
   if (st.landT < 0.22) {
@@ -644,7 +672,7 @@ export function animateCharacter(rig: Rig, a: AnimInput) {
         hipsY -= d.hipY * 0.42;
         O('thighL', -1.35); O('thighR', -1.2); O('shinL', 2.0); O('shinR', 1.9); O('footL', -0.65); O('footR', -0.7);
         add('spine', 0.45); O('armR', -1.0 + Math.sin(at * 5) * 0.12, 0, -0.1); O('foreR', -0.2); O('head', 0.4);
-        O('skirt', -1.0);
+        O('skirt', -1.15); O('skirt2', 1.0);
         break;
       }
       case 'eat':
@@ -666,14 +694,37 @@ export function animateCharacter(rig: Rig, a: AnimInput) {
         break;
       }
       case 'sit': {
+        // on a bench: thighs rest on the seat, sloping down to the knees if the seat is high enough for the
+        // feet to reach the ground; shins hang straight; the robe lies along the lap and falls from the knees
         const seat = a.seatY ?? d.kneeY + 0.04;
-        hipsY += seat - d.hipY;
-        O('thighL', -1.5, 0, 0.08); O('thighR', -1.5, 0, -0.08); O('shinL', 1.5); O('shinR', 1.5);
-        O('skirt', -1.1); O('armL', -0.5, 0, 0.1); O('armR', -0.5, 0, -0.1); O('foreL', -0.6); O('foreR', -0.6);
+        const hj = seat + d.legT * 0.5;
+        hipsY += hj - d.hipJ;
+        const ta = Math.acos(clamp((hj - d.kneeY) / d.thigh, -0.4, 0.96));
+        O('thighL', -ta, 0, 0.05); O('thighR', -ta, 0, -0.05); O('shinL', ta - 0.06); O('shinR', ta - 0.06);
+        O('footL', 0.06); O('footR', 0.06);
+        O('skirt', -ta); O('skirt2', ta - 0.12);
+        KS[0] = 1.06; KS[2] = 1.04; // a little fuller where it bunches over the knees
+        add('spine', -0.04);
+        O('armL', -0.55, 0, 0.12); O('armR', -0.55, 0, -0.12); O('foreL', -0.75); O('foreR', -0.75);
+        break;
+      }
+      case 'sitCross': {
+        // cross-legged: knees out to the sides, shins folded under, the robe spread over the lap and tucked
+        // down onto the cushion in front; hands rest on the knees
+        const seat = a.seatY ?? 0.1;
+        hipsY += seat + d.legT * 0.5 + 0.015 - d.hipJ;
+        O('thighL', -1.42, 0, 0.98); O('thighR', -1.42, 0, -0.98);
+        O('shinL', 2.5, 0, 0); O('shinR', 2.5, 0, 0);
+        O('footL', -0.5, 0, 0); O('footR', -0.5, 0, 0);
+        O('skirt', -1.5); O('skirt2', 1.45);
+        KS[0] = 1.55; KS[1] = 0.62; KS[3] = 0.74; KS[2] = 0.5 / KS[3]; // a low, wide lap
+        add('spine', 0.04);
+        O('armL', -0.3, 0, 0.32); O('armR', -0.3, 0, -0.32); O('foreL', -0.75, 0, 0); O('foreR', -0.75, 0, 0);
         break;
       }
       case 'mala':
-        O('armL', -0.45, 0, -0.05); O('foreL', -1.25 + Math.sin(at * 3) * 0.05);
+        // beads counted at the chest: elbow by the side, forearm raised and turned in, thumb ticking
+        O('armL', -0.14, -0.72, -0.04); O('foreL', -1.6 + Math.sin(at * 3) * 0.06); O('handL', 0.25 + Math.sin(at * 6) * 0.08);
         break;
       case 'phone':
         O('armR', -0.45, 0, 0.15); O('foreR', -1.75); O('head', 0.4, -0.05, 0);
@@ -705,7 +756,11 @@ export function animateCharacter(rig: Rig, a: AnimInput) {
     b.rotation.z = damp(b.rotation.z, T[i * 3 + 2], rate, dt);
   }
   bones.hips.position.y = damp(bones.hips.position.y, d.hipY + hipsY, 20, dt);
-  // robe flares as the legs spread
+  // robe flares as the legs spread; seated poses widen the lap and shorten the drop
   const flare = 1 + 0.12 * w * Math.abs(s) + 0.2 * st.air;
-  bones.skirt.scale.z = damp(bones.skirt.scale.z, flare, 12, dt);
+  const sk = bones.skirt.scale, sk2 = bones.skirt2.scale;
+  sk.x = damp(sk.x, KS[0], 10, dt);
+  sk.y = damp(sk.y, KS[1], 10, dt);
+  sk.z = damp(sk.z, flare * KS[3], 12, dt);
+  sk2.y = damp(sk2.y, KS[2], 10, dt);
 }

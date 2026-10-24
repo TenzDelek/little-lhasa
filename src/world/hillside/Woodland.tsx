@@ -19,10 +19,13 @@ import { isTree, type TreeInstance } from './woods';
 import { KORA, roadDist } from './util';
 
 // ---- wind material --------------------------------------------------------------------------------------
-const mats: Partial<Record<'big' | 'small', MeshLambertNodeMaterial>> = {};
-function windMaterial(big: boolean) {
-  const k = big ? 'big' : 'small';
+type WindKind = 'big' | 'small' | 'shrub';
+const mats: Partial<Record<WindKind, MeshLambertNodeMaterial>> = {};
+/** big: tree canopies (occlude); shrub: bushes, which also dissolve when they stand between the camera and the
+ *  boy (the chase camera looks through the understory); small: ferns and rocks. */
+function windMaterial(k: WindKind) {
   if (mats[k]) return mats[k]!;
+  const big = k === 'big';
   // per instance: x = phase, y = sway start height, z = 1 / (h − sway start), w = amplitude at the top (m)
   const tW = attribute<'vec4'>('tW', 'vec4');
   const hy = positionGeometry.y;
@@ -38,7 +41,7 @@ function windMaterial(big: boolean) {
     float(0),
     float(WIND_DIR.z).mul(amt).add(float(WIND_DIR.x).mul(cross)),
   );
-  const m = mat({ occlude: big, grain: big ? 0.07 : 0.05, grainScale: big ? 8 : 14, seed: big ? 31 : 17, positionNode: positionLocal.add(disp) });
+  const m = mat({ occlude: k !== 'small', grain: big ? 0.07 : 0.05, grainScale: big ? 8 : 14, seed: big ? 31 : 17, positionNode: positionLocal.add(disp) });
   // dissolve at the diorama rim exactly like the ground and grass do
   const xz = positionWorld.xz;
   const rim = rimKeep(fields(xz).A.a, xz);
@@ -93,7 +96,7 @@ function build(items: TreeInstance[]): Built {
     const n = list.length;
     const tW = new InstancedBufferAttribute(new Float32Array(n * 4), 4);
     geo.setAttribute('tW', tW);
-    const mesh = new InstancedMesh(geo, windMaterial(v.big), n);
+    const mesh = new InstancedMesh(geo, windMaterial(v.big ? 'big' : kind === 'bush' || kind === 'bushDry' ? 'shrub' : 'small'), n);
     mesh.setColorAt(0, _c.setRGB(1, 1, 1)); // allocate instanceColor
     const e: Entry = { kind, mesh, items: list, tW };
     pack(e, NONE);

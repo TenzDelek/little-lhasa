@@ -4,8 +4,11 @@
 // Plaza: x −13..14, z −10..10 (y 0). Territory: x −22..23, z −19..19 minus the road corridors:
 //   Dharamkot Road leaves north at x≈2, Bhagsu Road east at z≈−2, Temple Road south at x≈3,
 //   Jogiwara Road south-west from (−10, 8).
-// Buildings ring the square with their fronts facing in; tall ones on the north / west (the backdrop at the
-// default camera azimuth), low ones on the south / east (in front of the camera).
+// Buildings ring the square with their fronts facing in. The iso camera turns all the way round, so every row is
+// somebody's foreground: they stay 1–3 storeys (the two far corners, N1 / N7, are the tallest), and the lots
+// right behind the landmarks are the lowest — N5 (one storey) behind the chorten, N2 / N4 / W1 (two) behind
+// the Mani Lhakhang — so the shrine, the stupa and the boy at them stay in view from the azimuths 1–3 too.
+// (shots/review-square/tools/occl2.mjs ray-casts the landmarks / standing spots against these lots.)
 import type { BuildingSpec } from '../../kit/building';
 import { SPOTS, roadById } from '../layout';
 import { besideRoad } from '../../kit/building';
@@ -35,25 +38,25 @@ function row(id: string, side: 'N' | 'S' | 'E' | 'W', front: number, a: number, 
 const NF = -10.7, SF = 11.0, EF = 16.4, WF = -13.9;
 
 export const LOTS: Lot[] = [
-  // ---- north side (backdrop): hotels and cafés, 3–5 storeys -------------------------------------------
-  row('N1', 'N', NF, -22.0, -15.3, 7.6, { floors: 4, ground: 'hotel', roof: 'terrace', tanks: 2, dish: true, wall: 0xe9dfc4, seed: 11, tibetan: true, flags: true,
+  // ---- north side: hotels and cafés, 1–3 storeys -------------------------------------------
+  row('N1', 'N', NF, -22.0, -15.3, 7.6, { floors: 3, ground: 'hotel', roof: 'terrace', tanks: 2, dish: true, wall: 0xe9dfc4, seed: 11, tibetan: true, flags: true,
     sign: { text: 'HOTEL DROLMA', bod: 'མགྲོན་ཁང་', bg: 0x6e1f2a, fg: 0xe0b23a } }),
-  row('N2', 'N', NF, -15.1, -10.2, 7.0, { floors: 3, ground: 'cafe', roof: 'flat', tanks: 1, rebar: true, wall: 0xb3d1e0, seed: 12, clothes: true,
+  row('N2', 'N', NF, -15.1, -10.2, 7.0, { floors: 2, ground: 'cafe', roof: 'flat', tanks: 1, rebar: true, wall: 0xb3d1e0, seed: 12, clothes: true,
     sign: { text: 'SNOWLION CAFE', bg: 0x2f3a46, fg: 0xf3efe6 }, awning: 0x355f8f }),
   row('N3', 'N', NF, -10.0, -5.8, 7.0, { floors: 2, ground: 'shop', roof: 'tin', roofColor: 0x3f7a4c, wall: 0xe8c66a, seed: 13,
     sign: { text: 'THANGKA ART', bg: 0x8b1e2d, fg: 0xe0b23a } }),
-  row('N4', 'N', NF, -5.6, -0.9, 6.4, { floors: 3, ground: 'shop', roof: 'flat', tanks: 2, wall: 0xa8cfb4, seed: 14, party: { right: true },
+  row('N4', 'N', NF, -5.6, -0.9, 6.4, { floors: 2, ground: 'shop', roof: 'flat', tanks: 2, mumty: false, wall: 0xa8cfb4, seed: 14, party: { right: true },
     sign: { text: 'YETI TRAVELS', bg: 0x213252, fg: 0xf1c232 } }),
-  row('N5', 'N', NF, 7.5, 12.4, 7.0, { floors: 2, ground: 'hotel', roof: 'terrace', tanks: 2, wall: 0xe0a3a0, seed: 15, tibetan: true, flags: true,
-    sign: { text: 'KHAWA KARPO', bod: 'མགྲོན་ཁང་', bg: 0x2f63b8, fg: 0xf3efe6 } }),
-  row('N6', 'N', NF, 12.6, 17.6, 7.0, { floors: 3, ground: 'cafe', roof: 'tin', roofColor: 0xa33a2f, wall: 0xe9dfc4, seed: 16, tibetan: true,
+  row('N5', 'N', NF, 7.5, 12.4, 7.0, { floors: 1, ground: 'cafe', roof: 'flat', tanks: 2, wall: 0xe0a3a0, seed: 15, tibetan: true, flags: true,
+    sign: { text: 'KHAWA KARPO', bod: 'ཟ་ཁང་', bg: 0x2f63b8, fg: 0xf3efe6 } }),
+  row('N6', 'N', NF, 12.6, 17.6, 7.0, { floors: 2, ground: 'cafe', roof: 'tin', roofColor: 0xa33a2f, wall: 0xe9dfc4, seed: 16, tibetan: true,
     sign: { text: 'THUKPA HOUSE', bod: 'ཟ་ཁང་', bg: 0x6e1f2a, fg: 0xf3efe6 }, awning: 0xa33a2f }),
-  row('N7', 'N', NF, 17.8, 22.8, 7.0, { floors: 4, ground: 'shop', roof: 'flat', tanks: 1, dish: true, rebar: true, wall: 0xb7a6c9, seed: 17, clothes: true, mumty: true,
+  row('N7', 'N', NF, 17.8, 22.8, 7.0, { floors: 3, ground: 'shop', roof: 'flat', tanks: 1, dish: true, rebar: true, wall: 0xb7a6c9, seed: 17, clothes: true, mumty: false,
     sign: { text: 'BOOKS', bg: 0x3f6f55, fg: 0xf3efe6 } }),
-  // ---- west side: guesthouses, 3–4 storeys -------------------------------------------------------------
-  row('W1', 'W', WF, -10.4, -5.3, 7.0, { floors: 3, ground: 'shop', roof: 'tin', roofColor: 0x355f8f, wall: 0xd09a48, seed: 21,
+  // ---- west side: guesthouses, 2 storeys -------------------------------------------------------------
+  row('W1', 'W', WF, -10.4, -5.3, 7.0, { floors: 2, ground: 'shop', roof: 'tin', roofColor: 0x355f8f, wall: 0xd09a48, seed: 21,
     sign: { text: 'MOMO CORNER', bod: 'མོག་མོག', bg: 0xe0b23a, fg: 0x6e1f2a } }),
-  row('W2', 'W', WF, -5.1, 0.3, 7.0, { floors: 3, ground: 'hotel', roof: 'terrace', tanks: 2, wall: 0xeeeae0, seed: 22, tibetan: true, flags: true,
+  row('W2', 'W', WF, -5.1, 0.3, 7.0, { floors: 2, ground: 'hotel', roof: 'terrace', tanks: 2, wall: 0xeeeae0, seed: 22, tibetan: true, flags: true,
     sign: { text: 'GUEST HOUSE', bod: 'མགྲོན་ཁང་', bg: 0x2f8a4a, fg: 0xf3efe6 } }),
   row('W3', 'W', WF, 0.5, 4.9, 7.0, { floors: 2, ground: 'shop', roof: 'flat', tanks: 1, wall: 0xd9826a, seed: 23, solar: true,
     sign: { text: 'STD  PCO', bg: 0xf1c232, fg: 0x23202a } }),
@@ -104,7 +107,7 @@ export const VEHICLE_W: Record<VehicleKind, number> = { bus: 2.5, innova: 1.8, s
 // ---- small things on the square ---------------------------------------------------------------------------
 export const SHELTER = { x: -12.35, z: 3.3, yaw: PI / 2, w: 3.2, d: 1.5 };
 export const CHAI = { x: 11.4, z: -9.55, yaw: 0 };            // chai stall against the north-east pavement
-export const JUICE = { x: -3.6, z: 8.7, yaw: PI };             // fruit / juice cart, serving north into the square
+export const JUICE = { x: -3.6, z: 7.5, yaw: PI };             // fruit / juice cart, serving north into the square (clear of S2 so the default camera sees it)
 export const SHOESHINE = { x: -12.2, z: 0.9, yaw: PI / 2 };
 export const TAP = { x: -1.9, z: -9.55, yaw: 0 };
 export const KIOSK = { x: 6.2, z: -9.4, yaw: 0 };              // tiny general store by the Dharamkot Road corner
@@ -112,8 +115,8 @@ export const KIOSK = { x: 6.2, z: -9.4, yaw: 0 };              // tiny general s
 export const BENCHES: { x: number; z: number; yaw: number }[] = [
   { x: -12.3, z: -3.4, yaw: PI / 2 },
   { x: 11.2, z: -7.4, yaw: PI },
+  { x: 10.05, z: -5.4, yaw: PI / 2 }, // back to the chorten's east wall (not in front of its gate), facing Bhagsu Road
   { x: -6.2, z: 9.6, yaw: PI },
-  { x: 7.0, z: -2.7, yaw: 0 },
 ];
 
 export const LAMP_POSTS: { x: number; z: number; yaw: number }[] = [
@@ -123,4 +126,7 @@ export const LAMP_POSTS: { x: number; z: number; yaw: number }[] = [
   { x: 13.6, z: -9.4, yaw: -PI / 4 },
   { x: 6.9, z: 10.7, yaw: PI },
   { x: -4.4, z: -9.6, yaw: 0 },
+  // mid-square, over the taxi drivers' corner: lights the open middle at night (placed off the iso sight lines
+  // through the chorten and the Mani Lhakhang, so its pole never stands in front of them)
+  { x: 4.5, z: 1.4, yaw: -3 * PI / 4 },
 ];

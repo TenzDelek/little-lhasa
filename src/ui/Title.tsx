@@ -53,7 +53,7 @@ export function Title() {
               <button type="button" className="btn btn-quiet" onClick={() => useUi.setState({ confirm: true })}>New game</button>
             )}
             <span className="title-hint" aria-hidden="true">
-              {touch ? 'Tap to begin' : <>Press <KeyCap k="Enter" /></>}
+              {touch ? (saved ? 'Tap to continue' : 'Tap to begin') : <>Press <KeyCap k="Enter" /></>}
             </span>
           </div>
         ) : (

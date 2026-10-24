@@ -13,7 +13,8 @@ import type { SignSpec } from '../../kit/sign';
 import { type Ctx, inFrame } from './ctx';
 import { rectOK, obbOverlap, pointOK, roadDist, toWorld, TEMPLE, JOG, LANE, type Frame, type OBB, type PointRule } from './util';
 import { groundY } from '../terrain';
-import { bladeSign, dressShop, forecourt, rooftopCafe, roofFlags, upperLaundry, type Dress, type ShopKind } from './dressing';
+import { bladeSign, dressShop, forecourt, rooftopCafe, roofDrying, roofFlags, upperLaundry, type Dress, type ShopKind } from './dressing';
+import { sightTop, FLAT_EXTRA } from './sight';
 
 export const FLOOR_H = 2.9;
 
@@ -37,8 +38,10 @@ const SIGNS: Record<ShopKind, SignSpec[]> = {
   ],
   bakery: [{ text: 'BAKERY', bod: 'བག་ལེབ་ཁང', bg: 0xc98a2c, fg: 0x3a2418 }],
   germanBakery: [{ text: 'GERMAN BAKERY', bg: 0xeeeae0, fg: 0x6a2630, w: 2.8 }],
+  // Tibetan restaurants. Their boards say THUKPA / RESTAURANT, not MOMO: the only MOMO signs in town belong
+  // to Tashi's stall, so a boy sent for momos finds the right counter.
   momo: [
-    { text: 'MOMO HOUSE', bod: 'མོག་མོག', bg: PAL.templeRed, fg: PAL.templeYellow },
+    { text: 'RESTAURANT', bod: 'ཟ་ཁང', bg: PAL.templeRed, fg: PAL.templeYellow },
     { text: 'THUKPA', bod: 'ཐུག་པ', bg: 0xc98a2c, fg: 0x6a1f2a },
   ],
   chemist: [{ text: 'CHEMIST', bod: 'སྨན་ཁང', bg: 0xeeeae0, fg: 0x2f8a4a }],
@@ -117,15 +120,24 @@ export function placeBuilding(c: Ctx, o: PlaceOpts): Placed | null {
   const r = rng(o.seed);
   const maxD = Math.min(o.maxDepth ?? 8, 8.6 - o.setback);
   const minD = o.minDepth ?? 3.2;
+  const y = roadFrame(o.road, o.s).y + 0.15;
+  const want = o.floors ?? (o.low ? lowFloors(o.kind, r) : floorsFor(o.kind, r));
+  // keep the food stalls in view from the default camera: a building reaching into a stall's view corridor
+  // (eaves, balconies and signs over the forecourt included) is made shallower first, then lower, and is
+  // left out when not even one storey fits under the sightline
+  let fallback: { f: Frame; d: number; ob: OBB; cap: number } | null = null;
   for (let d = maxD; d >= minD - 1e-6; d -= 0.4) {
     const pl = besideRoad(o.road, o.s, o.side, d, o.setback);
     const f: Frame = { x: pl.x, z: pl.z, yaw: pl.yaw };
     if (!rectOK(o.road, f, o.w, d, o.rule)) continue;
     const ob: OBB = { x: f.x, z: f.z, hw: o.w / 2, hd: d / 2, yaw: f.yaw };
     if (c.footprints.some((q) => obbOverlap(q, ob, 0.02))) continue;
-    return build(c, o, f, d, r, ob);
+    const cap = sightTop(c.sight, f, o.w + 0.5, -d / 2 - 0.3, d / 2 + 0.9);
+    const fit = Number.isFinite(cap) ? Math.floor((cap - y - FLAT_EXTRA) / FLOOR_H) : 99;
+    if (fit >= want) return build(c, o, f, d, r, ob, cap, want);
+    if (fit >= 1 && !fallback) fallback = { f, d, ob, cap };
   }
-  return null;
+  return fallback ? build(c, o, fallback.f, fallback.d, r, fallback.ob, fallback.cap, want) : null;
 }
 
 // The kit's contract is world-space output. Probe once whether it actually applies the placement transform to
@@ -152,10 +164,14 @@ function kitBuild(c: Ctx, spec: BuildingSpec, f: Frame, y: number): BuiltBuildin
   return out!;
 }
 
-function build(c: Ctx, o: PlaceOpts, f: Frame, d: number, r: Rng, ob: OBB): Placed {
+function build(c: Ctx, o: PlaceOpts, f: Frame, d: number, r: Rng, ob: OBB, cap: number, want: number): Placed {
   const kind = o.kind;
   const y = roadFrame(o.road, o.s).y + 0.15;
-  let floors = o.floors ?? (o.low ? lowFloors(kind, r) : floorsFor(kind, r));
+  let floors = want;
+  // in a stall's view corridor: as many storeys as fit under the sightline, and a bare flat roof if the
+  // roof clutter (tanks, stair heads, tin ridges, rooftop umbrellas) would poke into it
+  if (Number.isFinite(cap)) floors = Math.max(1, Math.min(floors, Math.floor((cap - y - FLAT_EXTRA) / FLOOR_H)));
+  const bare = y + floors * FLOOR_H + 2.6 > cap;
   // keep Market Lane open to the sky: anything backing onto it stays low
   if (o.road !== LANE) {
     let near = Infinity;
@@ -181,6 +197,7 @@ function build(c: Ctx, o: PlaceOpts, f: Frame, d: number, r: Rng, ob: OBB): Plac
   const signs = SIGNS[kind];
   let roof: RoofKind = o.roof ?? pick(r, ['flat', 'flat', 'flat', 'tin', 'tin', 'tinHip', 'terrace'] as RoofKind[]);
   if (!o.roof && (kind === 'cafe' || kind === 'germanBakery') && r() < 0.7) roof = 'terrace';
+  if (bare) roof = 'flat';
   const spec: BuildingSpec = {
     w: o.w, d, floors, floorH: FLOOR_H,
     wall: r() < 0.85 ? pick(r, WALLS) : pick(r, [PAL.wallMaroon, PAL.wallTerracotta, PAL.concrete]),
@@ -196,6 +213,7 @@ function build(c: Ctx, o: PlaceOpts, f: Frame, d: number, r: Rng, ob: OBB): Plac
     litChance: kind === 'house' ? 0.5 : 0.6,
     seed: o.seed,
     ...o.spec,
+    ...(bare ? { roof: 'flat' as RoofKind, tanks: 0, mumty: false, solar: false, antenna: false, clothes: false, flags: false, dish: false, rebar: false } : {}),
   };
   // cafés get a deep first-floor balcony from dressing.cafeBalcony: their board hangs on its railing instead
   let balconySign: SignSpec | null = null;
@@ -211,7 +229,7 @@ function build(c: Ctx, o: PlaceOpts, f: Frame, d: number, r: Rng, ob: OBB): Plac
 
   {
     const [fx, fz] = toWorld(f, 0, d / 2 + o.setback * 0.5);
-    c.shops.push({ kind, x: Math.round(fx * 10) / 10, z: Math.round(fz * 10) / 10 });
+    c.shops.push({ kind, x: Math.round(fx * 10) / 10, z: Math.round(fz * 10) / 10, floors, top: Math.round(b.top * 10) / 10 });
   }
   const dress: Dress = {
     kind, w: o.w, d, fd, f, y, floorH: FLOOR_H, floors, top: b.top, roof, r, sign: balconySign,
@@ -222,14 +240,19 @@ function build(c: Ctx, o: PlaceOpts, f: Frame, d: number, r: Rng, ob: OBB): Plac
     if (!o.noDress && !spec.balconies && !balconySign && r() < 0.5) bladeSign(c, dress);
     if (r() < 0.28) upperLaundry(c, dress);
     if ((roof === 'terrace') && (kind === 'cafe' || kind === 'germanBakery')) rooftopCafe(c, dress);
-    else if (r() < 0.4) roofFlags(c, dress, roof === 'tin' || roof === 'tinHip');
+    else if (r() < 0.4 && !bare) roofFlags(c, dress, roof === 'tin' || roof === 'tinHip');
+    // camera-side rows show mostly roofs: give some flat ones something drying in the sun
+    if (roof === 'flat' && (o.low || bare) && r() < 0.5) roofDrying(c, dress);
   });
   return { b, f, y, w: o.w, d, setback: o.setback, dress };
 }
 
+/** Camera-side rows: mostly one and two storeys so the street, its far row of shop fronts and the stalls
+ *  stay readable from the default iso camera (the far rows carry the height). */
 function lowFloors(kind: ShopKind, r: Rng) {
-  if (kind === 'guesthouse') return 3 + (r() < 0.25 ? 1 : 0);
-  return r() < 0.12 ? 4 : 2 + Math.floor(r() * 2);
+  if (kind === 'guesthouse') return 2;
+  const k = r();
+  return k < 0.35 ? 1 : k < 0.95 ? 2 : 3;
 }
 
 function floorsFor(kind: ShopKind, r: Rng) {
@@ -333,19 +356,26 @@ export function backfill(c: Ctx, seed: number): number {
       }
       if (!ok) continue;
       const y = groundY(px, pz) + 0.05;
-      const tin = r() < 0.55;
+      const cap = sightTop(c.sight, f, w + 0.4, -d / 2 - 0.3, d / 2 + 0.3);
+      if (Number.isFinite(cap) && cap - y - FLAT_EXTRA < FLOOR_H) continue;
+      let tin = r() < 0.55;
+      let floors = w < 3 ? 1 : 1 + Math.floor(r() * 2);
+      if (Number.isFinite(cap)) floors = Math.max(1, Math.min(floors, Math.floor((cap - y - FLAT_EXTRA) / FLOOR_H)));
+      const bare = y + floors * FLOOR_H + 2.6 > cap;
+      if (bare) tin = false;
       const spec: BuildingSpec = {
-        w, d, floors: w < 3 ? 1 : 1 + Math.floor(r() * 2), floorH: FLOOR_H, ground: r() < 0.6 ? 'house' : 'blank',
+        w, d, floors, floorH: FLOOR_H, ground: r() < 0.6 ? 'house' : 'blank',
         sign: null, awning: null, balconies: r() < 0.3, roof: tin ? pick(r, ['tin', 'tinHip'] as RoofKind[]) : 'flat',
         tanks: tin ? 0 : 1 + Math.floor(r() * 2), dish: r() < 0.25, rebar: !tin && r() < 0.3, clutter: 0.8,
         seed: seed * 977 + n * 31,
+        ...(bare ? { tanks: 0, mumty: false, solar: false, antenna: false, clothes: false, flags: false, dish: false, rebar: false } : {}),
       };
       const b = kitBuild(c, spec, f, y);
       c.footprints.push(ob);
       c.colliders.push(...b.colliders);
       c.meshes.push(...b.meshes);
       n++;
-      if (r() < 0.35) {
+      if (r() < 0.35 && !bare) {
         const dress: Dress = { kind: 'house', w, d, fd: 0, f, y, floorH: FLOOR_H, floors: spec.floors, top: b.top, roof: spec.roof ?? 'flat', r };
         inFrame(c, f, y, () => roofFlags(c, dress, tin));
       }

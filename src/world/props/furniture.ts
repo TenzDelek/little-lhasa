@@ -92,7 +92,7 @@ function edgeOf(road: Road, x: number, z: number) {
 
 export function buildSigns(c: PCtx) {
   const [b0] = freeRange(BHAGSU), [d0, d1] = freeRange(DHARAMKOT), [t0] = freeRange(TEMPLE_RD);
-  const dir = (text: string): SignSpec => ({ text, bg: GREEN, fg: WHITE, glow: false, border: true, frame: 0xd8d4ca, h: 0.48 });
+  const dir = (text: string): SignSpec => ({ text, bg: GREEN, fg: WHITE, glow: false, border: false, frame: 0xd8d4ca, h: 0.4 });
   const plans: SignPlan[] = [
     // direction boards just past the square, on the left (keep-left) side, readable for people leaving it
     { road: BHAGSU, s: b0 + 3, side: -1, spec: dir('BHAGSUNAG 2'), face: 'back' },
@@ -101,8 +101,8 @@ export function buildSigns(c: PCtx) {
     // and one coming back into town
     { road: BHAGSU, s: 68, side: 1, spec: dir('MCLEOD GANJ 1'), face: 'fwd' },
     // speed breaker ahead (Dharamkot Road climbs past Amala's house; Bhagsu Road past the tea shop)
-    { road: DHARAMKOT, s: (d0 + d1) / 2 - 7, side: 1, spec: { text: 'SPEED BREAKER', bg: SIGN_YELLOW, fg: INK, glow: false, border: true, frame: 0x26262a, h: 0.44 }, face: 'back' },
-    { road: BHAGSU, s: 33, side: 1, spec: { text: 'SPEED BREAKER', bg: SIGN_YELLOW, fg: INK, glow: false, border: true, frame: 0x26262a, h: 0.44 }, face: 'back' },
+    { road: DHARAMKOT, s: (d0 + d1) / 2 - 7, side: 1, spec: { text: 'SPEED BREAKER', bg: SIGN_YELLOW, fg: INK, glow: false, border: true, frame: 0x6f7378, h: 0.44 }, face: 'back' },
+    { road: BHAGSU, s: 33, side: 1, spec: { text: 'SPEED BREAKER', bg: SIGN_YELLOW, fg: INK, glow: false, border: true, frame: 0x6f7378, h: 0.44 }, face: 'back' },
   ];
   for (const P of plans) placeSign(c, P);
 
@@ -128,7 +128,7 @@ export function buildSigns(c: PCtx) {
 export function buildBenches(c: PCtx) {
   const r = srng(3131), rb = srng(3232);
   const want: [Road, number][] = [
-    [BHAGSU, 26], [BHAGSU, 44], [BHAGSU, 64], [BHAGSU, 78],
+    [BHAGSU, 26], [BHAGSU, 40], [BHAGSU, 64], [BHAGSU, 78],
     [DHARAMKOT, 20], [DHARAMKOT, 44], [DHARAMKOT, 56],
     [JOGIWARA, 70],
   ];
@@ -139,6 +139,7 @@ export function buildBenches(c: PCtx) {
         const q = propPt(road, ss, sd, 0.52);
         if (!stripOK(q, q.off) || !keepClear(q.x, q.z)) continue;
         if (c.obs.blocked(q.x, q.z, 0.9, q.y - 0.3, q.y + 1.2)) continue;
+        if (c.obs.tagged(q.x, q.z, 2.2, 'door').length) continue; // not across somebody's doorway
         // level ground only (no bench teetering on a slope)
         const gy = [groundY(q.x + q.tx * 0.8, q.z + q.tz * 0.8), groundY(q.x - q.tx * 0.8, q.z - q.tz * 0.8)];
         if (Math.abs(gy[0] - gy[1]) > 0.18) continue;
@@ -182,6 +183,8 @@ function wallFoot(c: PCtx, road: Road, s: number, side: 1 | -1, depth: number, h
   const minE = (hasDrain(road, s, side) ? 0.6 : 0.2) + depth / 2;
   if (e < minE || e > 1.9) return null;
   if (!territoryOK(x, z) || !keepClear(x, z)) return null;
+  // never in front of a door (the building kit buries a 'door' marker in the wall)
+  if (c.obs.tagged(x, z, Math.hypot(0.65 + half, 0.55), 'door').length) return null;
   // stand on a plinth / step in front of the wall when there is one
   const tx = -oz, tz = ox;
   const y = c.obs.floorAt(x, z, depth * 0.45, groundY(x, z));
@@ -205,7 +208,7 @@ export function buildDoorsteps(c: PCtx) {
   const far = (x: number, z: number, d: number) => used.every((u) => Math.hypot(u.x - x, u.z - z) > d);
   for (const road of roads) {
     const [s0, s1] = freeRange(road);
-    for (let s = s0 + 2 + r() * 3; s < s1 - 2; s += 2.5 + r() * 2.5) {
+    for (let s = s0 + 2 + r() * 3; s < s1 - 2; s += 1.5 + r() * 1.5) {
       const first: 1 | -1 = r() < 0.5 ? 1 : -1;
       const roll = r();
       // houses on Dharamkot / Bhagsu get plants; the shop roads get crates and gas

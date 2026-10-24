@@ -4,11 +4,11 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { G, useGame, type QuestState } from '../game/store';
 import { QUESTS } from '../game/quests';
 import { input } from '../core/input';
-import { ITEM_DEFS } from './pixels';
+import { ITEM_DEFS, ROT_L, ROT_R } from './pixels';
 import { ErrandLine } from './TopBar';
 import { KeyCap, PixelIcon } from './bits';
 import { ConfirmNew } from './Title';
-import { errandCount, useUi } from './ctl';
+import { errandCount, useMedia, useUi } from './ctl';
 
 function Card({ className, eyebrow, title, bod, onClose, children, label }: {
   className?: string; eyebrow: string; title: string; bod?: string; onClose: () => void; children: ReactNode; label: string;
@@ -74,30 +74,42 @@ export function QuestLog() {
 
 export function HelpCard() {
   const touch = useUi((s) => s.touch);
+  // a phone has no keyboard worth listing; a touch laptop gets both lists, thumbs first
+  const fine = useMedia('(any-pointer: fine)');
+  const keyboard = !touch || fine;
   return (
     <Card className="card-help" eyebrow="Controls" title="How to walk" label="Controls" onClose={() => G().setPanel(null)}>
       <div className="help-cols">
-        <dl className="keys">
-          <dt><KeyCap k="W" /><KeyCap k="A" /><KeyCap k="S" /><KeyCap k="D" /></dt><dd>Walk (or arrow keys)</dd>
-          <dt><KeyCap k="Shift" /></dt><dd>Run</dd>
-          <dt><KeyCap k="Space" /></dt><dd>Jump</dd>
-          <dt><KeyCap k="E" /></dt><dd>Talk · spin · light · buy</dd>
-          <dt><KeyCap k="Q" /><KeyCap k="R" /></dt><dd>Turn the view 90°</dd>
-          <dt><KeyCap k="C" /></dt><dd>Diorama / chase camera</dd>
-          <dt><KeyCap k="N" /></dt><dd>Day / night</dd>
-          <dt><KeyCap k="M" /></dt><dd>Sound on / off</dd>
-          <dt><KeyCap k="J" /></dt><dd>Errand log</dd>
-          <dt><KeyCap k="Esc" /></dt><dd>Pause</dd>
-          <dt>Mouse</dt><dd>Wheel zooms · drag turns</dd>
-        </dl>
         {touch && (
-          <dl className="keys">
-            <dt>Left thumb</dt><dd>Walk · push far to run</dd>
-            <dt>✋</dt><dd>Talk · spin · light · buy</dd>
-            <dt>Jump</dt><dd>Hop up steps</dd>
-            <dt>⟲ ⟳</dt><dd>Turn the view</dd>
-            <dt>Right side</dt><dd>Drag to turn · pinch to zoom</dd>
-          </dl>
+          <section>
+            {keyboard && <h3 className="eyebrow help-sub">Touch</h3>}
+            <dl className="keys">
+              <dt>Left thumb</dt><dd>Walk · push far to run</dd>
+              <dt><span className="tglyph" aria-hidden="true">✋</span><span className="sr-only">Hand button</span></dt><dd>Talk · spin · light · buy</dd>
+              <dt>Jump</dt><dd>Hop up steps and walls</dd>
+              <dt><PixelIcon grid={ROT_L} size={14} /><PixelIcon grid={ROT_R} size={14} /><span className="sr-only">Turn buttons</span></dt><dd>Turn the view 90°</dd>
+              <dt>Cam</dt><dd>Diorama / chase camera</dd>
+              <dt>Right side</dt><dd>Drag to turn · pinch to zoom</dd>
+            </dl>
+          </section>
+        )}
+        {keyboard && (
+          <section>
+            {touch && <h3 className="eyebrow help-sub">Keyboard</h3>}
+            <dl className="keys">
+              <dt><KeyCap k="W" /><KeyCap k="A" /><KeyCap k="S" /><KeyCap k="D" /></dt><dd>Walk (or arrow keys)</dd>
+              <dt><KeyCap k="Shift" /></dt><dd>Run</dd>
+              <dt><KeyCap k="Space" /></dt><dd>Jump</dd>
+              <dt><KeyCap k="E" /></dt><dd>Talk · spin · light · buy</dd>
+              <dt><KeyCap k="Q" /><KeyCap k="R" /></dt><dd>Turn the view 90°</dd>
+              <dt><KeyCap k="C" /></dt><dd>Diorama / chase camera</dd>
+              <dt><KeyCap k="N" /></dt><dd>Day / night</dd>
+              <dt><KeyCap k="M" /></dt><dd>Sound on / off</dd>
+              <dt><KeyCap k="J" /></dt><dd>Errand log</dd>
+              <dt><KeyCap k="Esc" /></dt><dd>Pause</dd>
+              <dt>Mouse</dt><dd>Wheel zooms · drag turns</dd>
+            </dl>
+          </section>
         )}
       </div>
       <p className="muted small help-note">
@@ -134,16 +146,25 @@ export function PauseMenu() {
   );
 }
 
+/** The pause menu unmounts while one of its cards is open; coming back, focus returns to the button that
+ *  opened it (otherwise Resume). */
+let reopenFrom: 'quests' | 'help' | null = null;
+
 function PauseButtons({ night, cam, muted }: { night: boolean; cam: 'iso' | 'chase'; muted: boolean }) {
-  const resume = useRef<HTMLButtonElement>(null);
-  useEffect(() => { resume.current?.focus({ preventScroll: true }); }, []);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = menu.current?.querySelector<HTMLElement>(reopenFrom ? `[data-panel="${reopenFrom}"]` : '.btn-primary');
+    el?.focus({ preventScroll: true });
+    queueMicrotask(() => { reopenFrom = null; }); // after StrictMode's second effect run, not between
+  }, []);
+  const open = (p: 'quests' | 'help') => { reopenFrom = p; G().setPanel(p); };
   return (
-    <div className="menu" data-nav>
-      <button ref={resume} type="button" className="btn btn-primary" onClick={() => G().setPaused(false)}>
+    <div ref={menu} className="menu" data-nav>
+      <button type="button" className="btn btn-primary" onClick={() => G().setPaused(false)}>
         <span className="dot" aria-hidden="true" />Resume <KeyCap k="Esc" />
       </button>
-      <button type="button" className="btn" onClick={() => G().setPanel('quests')}>Errands <KeyCap k="J" /></button>
-      <button type="button" className="btn" onClick={() => G().setPanel('help')}>Controls <KeyCap k="H" /></button>
+      <button type="button" className="btn" data-panel="quests" onClick={() => open('quests')}>Errands <KeyCap k="J" /></button>
+      <button type="button" className="btn" data-panel="help" onClick={() => open('help')}>Controls <KeyCap k="H" /></button>
       <button type="button" className="btn" aria-pressed={night} onClick={() => input.press('night')}>
         Day / Night <span className="menu-val">{night ? 'Night' : 'Day'}</span>
       </button>

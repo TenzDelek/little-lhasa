@@ -58,14 +58,26 @@ function occlusionKeep(): Node<'bool'> {
   const k = smoothstep(U.occludeRadius, U.occludeRadius.mul(0.55), perp)
     .mul(smoothstep(0.35, 1.3, along))
     .mul(U.occlude);
-  // anything right in front of the lens (chase camera pushed into a canopy or an eave) dissolves too
-  const near = smoothstep(2.2, 0.9, positionWorld.distance(cameraPosition));
-  return bayer4(screenCoordinate.xy).greaterThanEqual(max(k, near).mul(0.9));
+  // chase camera pushed into a canopy or under an eave: whatever is right in front of the lens dissolves —
+  // completely inside ~1 m, thinning out to 2.6 m — so the view never fills with a wall of leaves
+  const near = smoothstep(2.6, 1.0, positionWorld.distance(cameraPosition)).mul(U.nearCut).mul(1.1);
+  return bayer4(screenCoordinate.xy).greaterThanEqual(max(k.mul(0.9), near));
+}
+
+/** Cache key from the resolved options, so equivalent calls share one material (and one shader build) no
+ *  matter how they spell their options. Keyed calls (`key`) stay separate: their callers customise them. */
+function cacheKey(o: MatOpts): string {
+  if (o.key) return `k:${o.key}`;
+  return [
+    o.color ?? 0xffffff, o.vertexColors !== false ? 1 : 0, o.flat !== false ? 1 : 0, o.grain ?? 0.06, o.grainScale ?? 18,
+    o.seed ?? '', o.occlude ? 1 : 0, o.emit ? 1 : 0, o.emissive ?? '', o.emissiveIntensity ?? 1, o.emissiveNight ? 1 : 0,
+    o.side === 'double' ? 'd' : (o.side ?? FrontSide),
+  ].join('|');
 }
 
 export function mat(opts: MatOpts = {}): MeshLambertNodeMaterial {
   const simple = !opts.fade && !opts.positionNode;
-  const key = simple ? (opts.key ?? JSON.stringify(opts)) : null;
+  const key = simple ? cacheKey(opts) : null;
   if (key && cache.has(key)) return cache.get(key)!;
 
   const side = opts.side === 'double' ? DoubleSide : (opts.side ?? FrontSide);
@@ -77,11 +89,13 @@ export function mat(opts: MatOpts = {}): MeshLambertNodeMaterial {
   });
 
   // Grain: one value-noise cell per 1/grainScale m in geometry space, so the pattern sticks to the object.
+  // Amount, scale and seed are uniforms rather than literals, so materials that differ only in grain share
+  // one compiled shader.
   const grain = opts.grain ?? 0.06;
   if (grain > 0) {
     const seed = opts.seed ?? ((opts.color ?? 0x777777) % 997) * 0.37;
-    const n = hash13(floor(positionGeometry.mul(opts.grainScale ?? 18)).add(seed));
-    const g = float(1).add(n.sub(0.5).mul(2 * grain));
+    const n = hash13(floor(positionGeometry.mul(uniform(opts.grainScale ?? 18))).add(uniform(seed)));
+    const g = float(1).add(n.sub(0.5).mul(uniform(2 * grain)));
     m.colorNode = vec4(uniform(srgb(opts.color ?? 0xffffff)).mul(g), 1);
   }
 
@@ -92,7 +106,7 @@ export function mat(opts: MatOpts = {}): MeshLambertNodeMaterial {
     emissive.push(e.xyz.mul(select(e.w.greaterThan(1.5), U.night, float(1))));
   }
   if (opts.emissive !== undefined) {
-    const c = uniform(srgb(opts.emissive)).mul(opts.emissiveIntensity ?? 1);
+    const c = uniform(srgb(opts.emissive).multiplyScalar(opts.emissiveIntensity ?? 1)).mul(1);
     emissive.push(opts.emissiveNight ? c.mul(U.night) : c);
   }
   // emissiveNode is honoured by every lit NodeMaterial at runtime; the Lambert typings just omit it

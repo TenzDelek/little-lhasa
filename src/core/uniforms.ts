@@ -16,6 +16,9 @@ export const U = {
   occlude: uniform(1),
   /** Radius (m, perpendicular to the view) of the see-through hole around the player. */
   occludeRadius: uniform(2.6),
+  /** 1 when the camera can come close to scenery (chase): occludable surfaces right in front of the lens
+   *  dissolve completely (canopies, eaves, awnings). 0 for the far iso camera. Written by CameraRig. */
+  nearCut: uniform(0),
   /** One art pixel in world metres at the current zoom (iso camera). */
   artPx: uniform(0.04),
   /** Prevailing wind strength multiplier (flags, trees, smoke). */

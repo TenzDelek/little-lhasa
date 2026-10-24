@@ -65,8 +65,8 @@ function tibetanWindow(p: Parts, face: number, y0: number) {
 /** A run of the wheel gallery on a wall face (local z = OUT, facing +z) between x0..x1. */
 function wheelGallery(p: Parts, x0: number, x1: number) {
   const z = OUT;
-  // red painted panel behind the drums with yellow pinstripes
-  p.slab(x0 - 0.05, PL + 0.5, z, x1 + 0.05, PL + 1.62, z + 0.025, PAL.templeRed);
+  // deep maroon panel behind the drums (darker than the red drums so they stand off it) with yellow pinstripes
+  p.slab(x0 - 0.05, PL + 0.5, z, x1 + 0.05, PL + 1.62, z + 0.025, 0x4e1820);
   p.slab(x0 - 0.05, PL + 1.62, z, x1 + 0.05, PL + 1.66, z + 0.03, PAL.templeYellow);
   p.slab(x0 - 0.05, PL + 0.46, z, x1 + 0.05, PL + 0.5, z + 0.03, PAL.templeYellow);
   // bottom and top rails (maroon-painted timber) with brackets
@@ -301,22 +301,25 @@ export function buildMani(p: Parts, d: Decals, at: { x: number; y: number; z: nu
 const FT_TOP = 4.4 + 0.95 + 0.02 + 0.8 + 0.9;
 const xyz = (v: V3) => ({ x: v[0], y: v[1], z: v[2] });
 
-/** One small prayer wheel, origin at the drum's bottom centre: red drum, gold rims, six gilded syllables. */
+/**
+ * One small prayer wheel, origin at the drum's bottom centre: red drum, gold rims and three broad gilded
+ * syllable plates, each with a dark letter. Three bold bands (not six thin ones) so a turning drum reads as
+ * gold / red stripes sweeping across its 7-px face instead of a shimmer.
+ */
 export function smallWheelGeometry(): BufferGeometry {
   const p = new Parts();
   const { r, h } = SW;
   p.cyl(0.012, 0.012, 0.1, [0, -0.08, 0], PAL.hair, 4);
-  p.cyl(r + 0.012, r + 0.012, 0.05, [0, 0, 0], PAL.khorloGold, 10);
-  p.cyl(r, r, h - 0.08, [0, 0.04, 0], PAL.khorloBody, 10);
-  p.cyl(r + 0.012, r + 0.012, 0.05, [0, h - 0.05, 0], PAL.khorloGold, 10);
-  p.cyl(0.06, r, 0.05, [0, h, 0], PAL.khorloCopper, 10);
+  p.cyl(r + 0.012, r + 0.012, 0.05, [0, 0, 0], PAL.khorloGold, 12);
+  p.cyl(r, r, h - 0.08, [0, 0.04, 0], PAL.khorloBody, 12);
+  p.cyl(r + 0.012, r + 0.012, 0.05, [0, h - 0.05, 0], PAL.khorloGold, 12);
+  p.cyl(0.06, r, 0.05, [0, h, 0], PAL.khorloCopper, 12);
   p.cyl(0.012, 0.012, 0.12, [0, h + 0.04, 0], PAL.hair, 4);
-  for (let i = 0; i < 6; i++) p.group([0, 0, 0], (i / 6) * PI * 2, () => {
-    p.box(0.075, 0.17, 0.02, [0, h * 0.5, r + 0.003], PAL.khorloGold);
-    p.box(0.02, 0.06, 0.02, [0.06, h * 0.5, r * 0.93], PAL.templeYellow);
+  for (let i = 0; i < 3; i++) p.group([0, 0, 0], (i / 3) * PI * 2, () => {
+    p.box(0.12, h - 0.16, 0.024, [0, h * 0.5, r - 0.004], PAL.khorloGold);
+    p.box(0.035, 0.12, 0.012, [0, h * 0.5, r + 0.012], PAL.templeMaroon);
+    p.box(0.07, 0.02, 0.012, [0, h * 0.5 + 0.075, r + 0.012], PAL.templeMaroon);
   });
-  // a darker grip stripe so the spin reads even from far away
-  p.box(0.03, h - 0.12, 0.02, [0, h / 2, -r - 0.004], PAL.templeMaroon);
   return p.merge();
 }
 

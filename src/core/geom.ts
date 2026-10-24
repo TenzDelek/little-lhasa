@@ -11,7 +11,7 @@
 //   });
 //   scene.add(...p.toMeshes(partsMaterial({ occlude: true })));
 import {
-  BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, Euler, Float32BufferAttribute, Matrix4,
+  BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, Euler, Float32BufferAttribute, Matrix3, Matrix4,
   Mesh, Quaternion, Vector3, type Material,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -34,10 +34,64 @@ interface Item { geo: BufferGeometry; cx: number; cz: number }
 
 const _c = new Color();
 const _m = new Matrix4();
+const _mw = new Matrix4();
+const _n3 = new Matrix3();
 const _q = new Quaternion();
 const _e = new Euler();
 const _s = new Vector3(1, 1, 1);
 const _p = new Vector3();
+
+// Unit box with BoxGeometry's exact layout (24 vertices, per-face normals, 36 indices). box() scales copies
+// of it instead of running BoxGeometry's plane builder for each of the tens of thousands of boxes in the town.
+let BOX: { pos: Float32Array; nrm: Float32Array; idx: Uint16Array } | null = null;
+function boxGeometry(w: number, h: number, d: number): BufferGeometry {
+  if (!BOX) {
+    const u = new BoxGeometry(1, 1, 1);
+    BOX = { pos: u.attributes.position.array as Float32Array, nrm: u.attributes.normal.array as Float32Array, idx: Uint16Array.from(u.index!.array) };
+  }
+  const pos = new Float32Array(72);
+  for (let i = 0; i < 72; i += 3) { pos[i] = BOX.pos[i] * w; pos[i + 1] = BOX.pos[i + 1] * h; pos[i + 2] = BOX.pos[i + 2] * d; }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(pos, 3));
+  g.setAttribute('normal', new BufferAttribute(BOX.nrm.slice(), 3));
+  g.setIndex(new BufferAttribute(BOX.idx.slice(), 1));
+  return g;
+}
+
+/** Transform positions / normals in place (plain Float32 attributes only; anything else goes through three's
+ *  applyMatrix4) and return the xz centre of the result, for chunking. */
+function place(g: BufferGeometry, m: Matrix4): [number, number] {
+  const P = g.attributes.position as BufferAttribute, N = g.attributes.normal as BufferAttribute | undefined;
+  const plain = (a: BufferAttribute | undefined) => !a || (a.isBufferAttribute && a.itemSize === 3 && a.array instanceof Float32Array);
+  if (!plain(P) || !plain(N) || g.attributes.tangent) {
+    g.applyMatrix4(m);
+    g.computeBoundingBox();
+    const bb = g.boundingBox!;
+    return [(bb.min.x + bb.max.x) / 2, (bb.min.z + bb.max.z) / 2];
+  }
+  const e = m.elements, p = P.array as Float32Array;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i < p.length; i += 3) {
+    const x = p[i], y = p[i + 1], z = p[i + 2];
+    const X = e[0] * x + e[4] * y + e[8] * z + e[12];
+    const Z = e[2] * x + e[6] * y + e[10] * z + e[14];
+    p[i] = X; p[i + 1] = e[1] * x + e[5] * y + e[9] * z + e[13]; p[i + 2] = Z;
+    if (X < x0) x0 = X; if (X > x1) x1 = X; if (Z < z0) z0 = Z; if (Z > z1) z1 = Z;
+  }
+  P.needsUpdate = true;
+  if (N) {
+    const n = _n3.getNormalMatrix(m).elements, a = N.array as Float32Array;
+    for (let i = 0; i < a.length; i += 3) {
+      const x = a[i], y = a[i + 1], z = a[i + 2];
+      const X = n[0] * x + n[3] * y + n[6] * z, Y = n[1] * x + n[4] * y + n[7] * z, Z = n[2] * x + n[5] * y + n[8] * z;
+      const l = Math.hypot(X, Y, Z) || 1;
+      a[i] = X / l; a[i + 1] = Y / l; a[i + 2] = Z / l;
+    }
+    N.needsUpdate = true;
+  }
+  // a determinant < 0 (mirroring scale) flips winding; three's applyMatrix4 doesn't fix that either
+  return [(x0 + x1) / 2, (z0 + z1) / 2];
+}
 
 function prep(geo: BufferGeometry, hex: number, o?: PartOpts): BufferGeometry {
   const g = geo;
@@ -121,16 +175,14 @@ export class Parts {
   add(geo: BufferGeometry, color: number, at: V3 = [0, 0, 0], o?: PartOpts) {
     const g = prep(geo, color, o);
     _m.compose(_p.set(at[0], at[1], at[2]), _q.setFromEuler(_e.set(o?.rot?.[0] ?? 0, o?.rot?.[1] ?? 0, o?.rot?.[2] ?? 0)), _s.set(1, 1, 1));
-    g.applyMatrix4(this.matrix.clone().multiply(_m));
-    g.computeBoundingBox();
-    const bb = g.boundingBox!;
-    this.items.push({ geo: g, cx: (bb.min.x + bb.max.x) / 2, cz: (bb.min.z + bb.max.z) / 2 });
+    const [cx, cz] = place(g, _mw.multiplyMatrices(this.matrix, _m));
+    this.items.push({ geo: g, cx, cz });
     return this;
   }
 
   /** Box of size w x h x d centred at `c`. */
   box(w: number, h: number, d: number, c: V3, color: number, o?: PartOpts) {
-    return this.add(new BoxGeometry(w, h, d), color, c, o);
+    return this.add(boxGeometry(w, h, d), color, c, o);
   }
   /** Axis-aligned box from min corner to max corner (in group space). */
   slab(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: number, o?: PartOpts) {

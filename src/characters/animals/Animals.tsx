@@ -11,6 +11,7 @@ import { Puppy } from './Puppy';
 import { Cows } from './Cows';
 import { Monkeys } from './Monkeys';
 import { Birds } from './Birds';
+import { PeopleZoo, peopleZooOn } from '../PeopleZoo';
 
 export function Animals() {
   // test hooks: window.__scene / __camera (for the screenshot scripts in shots/animals)
@@ -44,6 +45,7 @@ export function Animals() {
       <Monkeys />
       <Birds />
       {zooOn && <Zoo />}
+      {peopleZooOn && <PeopleZoo />}
     </>
   );
 }

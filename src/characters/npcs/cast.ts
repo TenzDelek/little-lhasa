@@ -258,7 +258,8 @@ maniWalker('mani-lhakpa', 'Mo-la Lhakpa', true, 16.5, 'home');
 add({ id: 't-yangzom', name: 'Yangzom', bod: 'དབྱངས་འཛོམས།', label: 'Talk to Yangzom', kind: 'womanShop', mode: 'walk', night: 'home',
   route: 'town', s: 8, speed: 1.0, lateral: -0.3, spec: tibetanWoman(r, { holdR: 'bag' }), pauseEvery: 30, pauseKind: 'look', greet: 0.6 });
 add({ id: 't-dekyi', name: 'Dekyi', bod: 'བདེ་སྐྱིད།', label: 'Talk to Dekyi', kind: 'womanShop', mode: 'walk', night: 'home',
-  leader: 't-yangzom', ds: 0.1, lateral: 0.3, spec: tibetanWoman(r, { bag: 'shoulder', bagColor: PAL.khaki }), greet: 0.4 });
+  // Yangzom's younger sister, not married: a chuba without the pangden apron
+  leader: 't-yangzom', ds: 0.1, lateral: 0.3, spec: tibetanWoman(r, { bag: 'shoulder', bagColor: PAL.khaki, apron: null, height: 1.6 }), greet: 0.4 });
 add({ id: 't-tenzin', name: 'Tenzin', bod: 'བསྟན་འཛིན།', label: 'Talk to the other Tenzin', kind: 'youth', mode: 'walk', night: 'home',
   route: 'town', s: 70, speed: 1.35, spec: youth(r, false), pauseEvery: 50, pauseKind: 'look', greet: 0.6 });
 add({ id: 't-kunsang', name: 'Kunsang', bod: 'ཀུན་བཟང་།', label: 'Talk to Kunsang', kind: 'youth', mode: 'walk', night: 'stay',
