@@ -13,6 +13,8 @@ import { clamp, lerp } from '../core/math';
 import { G } from '../game/store';
 
 const POOL = 10;
+/** Global boost for lamp pools: physical decay-2 lights need more punch to read as pools in the pixel pass. */
+const LAMP_GAIN = 2.6;
 const MODES = {
   day: { hemiSky: 0xc9d8ee, hemiGround: 0x6a6650, hemi: 1.35, sun: 0xfff0d6, sunI: 2.9, sunDir: [0.45, 1, 0.62], amb: 0xffffff, ambI: 0.12 },
   night: { hemiSky: 0x3a4256, hemiGround: 0x15181e, hemi: 0.5, sun: 0xa2aed0, sunI: 0.6, sunDir: [-0.5, 1, 0.35], amb: 0x2a2f3c, ambI: 0.22 },
@@ -93,7 +95,7 @@ export function Lighting() {
       const fl = lamp.flicker ? 1 - lamp.flicker * (0.5 + 0.5 * Math.sin(game.time * 17 + i * 3.1) * Math.sin(game.time * 7.3 + i)) : 1;
       light.position.set(lamp.x, lamp.y, lamp.z);
       light.color.setHex(lamp.color);
-      light.intensity = lamp.intensity * on * fl;
+      light.intensity = lamp.intensity * on * fl * LAMP_GAIN;
       light.distance = lamp.distance;
     }
   }, -1);
